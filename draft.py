@@ -808,12 +808,32 @@ def align_face(bgr_img, right_eye, left_eye, nose_tip):
                    (used for GUI corner thumbnails)
         (None, None) if the transform cannot be estimated.
     """
-    src = np.float32([right_eye, left_eye, nose_tip])
-    dst = np.float32([TARGET_RIGHT_EYE, TARGET_LEFT_EYE, TARGET_NOSE_TIP])
+    # Compute the similarity transform analytically from the two eye points.
+    # Using all 3 points with estimateAffinePartial2D over-constrains the
+    # 4-DOF model: when the nose mapping is geometrically inconsistent with
+    # the eye mapping (common on turned or smiling faces), the solver
+    # introduces spurious rotation to minimise the combined residual, visibly
+    # tilting the aligned crop even when the source eyes are level.
+    # Two points give an exact, closed-form solution with zero tilt artefact.
+    re  = np.float64(right_eye)
+    le  = np.float64(left_eye)
+    tre = TARGET_RIGHT_EYE.astype(np.float64)
+    tle = TARGET_LEFT_EYE.astype(np.float64)
 
-    M, _ = cv2.estimateAffinePartial2D(src, dst, method=cv2.LMEDS)
-    if M is None:
+    src_vec = le - re
+    dst_vec = tle - tre
+    src_len = np.linalg.norm(src_vec)
+    if src_len < 1.0:
         return None, None
+
+    scale   = np.linalg.norm(dst_vec) / src_len
+    angle   = np.arctan2(dst_vec[1], dst_vec[0]) - np.arctan2(src_vec[1], src_vec[0])
+    cos_a   = scale * np.cos(angle)
+    sin_a   = scale * np.sin(angle)
+    tx      = tre[0] - (cos_a * re[0] - sin_a * re[1])
+    ty      = tre[1] - (sin_a * re[0] + cos_a * re[1])
+    M       = np.array([[cos_a, -sin_a, tx],
+                        [sin_a,  cos_a, ty]], dtype=np.float64)
 
     clean = cv2.warpAffine(
         bgr_img, M, (FACE_OUT_SIZE, FACE_OUT_SIZE),
