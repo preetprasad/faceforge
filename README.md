@@ -96,6 +96,13 @@ face-detection/
 pip install -r requirements.txt
 ```
 
+**Verify the critical dependency after installing:**
+```bash
+python -c "import face_recognition; print('face_recognition OK')"
+```
+If this fails, Task 5 clustering falls back to LBP features (less accurate).
+Install dlib manually first if needed (see below).
+
 `face-recognition` depends on `dlib`, which requires a C++ compiler. On most systems `pip` will install a pre-built wheel. If it fails, install dlib first:
 
 ```bash

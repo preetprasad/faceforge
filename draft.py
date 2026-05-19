@@ -1189,6 +1189,25 @@ class FaceGUI:
         self._build_image_panels()
         self._build_status_label()
         self._build_buttons()
+        self._check_dependencies()
+
+    # ── Dependency check ──────────────────────────────────────────────────────
+
+    def _check_dependencies(self):
+        missing = []
+        try:
+            import face_recognition  # noqa: F401
+        except Exception:
+            missing.append("face-recognition / dlib")
+        if mp is None:
+            missing.append("mediapipe")
+        if missing:
+            self._set_status(
+                "WARNING: missing packages — " + ", ".join(missing) + ". "
+                "Run: pip install " + " ".join(missing) + "\n"
+                "Bulk clustering will use LBP fallback (less accurate) "
+                "without face-recognition."
+            )
 
     # ── Layout helpers ────────────────────────────────────────────────────────
 
