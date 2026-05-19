@@ -811,32 +811,39 @@ def align_face(bgr_img, right_eye, left_eye, nose_tip):
                    (used for GUI corner thumbnails)
         (None, None) if the transform cannot be estimated.
     """
-    # Compute the similarity transform analytically from the two eye points.
-    # Using all 3 points with estimateAffinePartial2D over-constrains the
-    # 4-DOF model: when the nose mapping is geometrically inconsistent with
-    # the eye mapping (common on turned or smiling faces), the solver
-    # introduces spurious rotation to minimise the combined residual, visibly
-    # tilting the aligned crop even when the source eyes are level.
-    # Two points give an exact, closed-form solution with zero tilt artefact.
-    re  = np.float64(right_eye)
-    le  = np.float64(left_eye)
-    tre = TARGET_RIGHT_EYE.astype(np.float64)
-    tle = TARGET_LEFT_EYE.astype(np.float64)
+    # Least-squares similarity transform from all three landmarks.
+    #
+    # A similarity transform has 4 DOF: [a, b, c, d] where
+    #   u = a*x - b*y + c      (a = s·cos θ, b = s·sin θ)
+    #   v = b*x + a*y + d
+    #
+    # With 3 source→target pairs we have 6 equations and 4 unknowns —
+    # an over-determined system solved by least squares (np.linalg.lstsq).
+    # This minimises total squared landmark error across all three points
+    # simultaneously, satisfying the spec requirement that eyes sit at
+    # (40,40)/(85,40) and nose at (63,70), while avoiding the spurious
+    # rotation introduced by LMEDS (which treats point pairs as inliers/
+    # outliers — inappropriate when all three are trusted measurements).
+    src_pts = np.array([right_eye, left_eye, nose_tip], dtype=np.float64)
+    dst_pts = np.array([TARGET_RIGHT_EYE, TARGET_LEFT_EYE, TARGET_NOSE_TIP],
+                       dtype=np.float64)
 
-    src_vec = le - re
-    dst_vec = tle - tre
-    src_len = np.linalg.norm(src_vec)
-    if src_len < 1.0:
+    n_pts = len(src_pts)
+    A = np.zeros((2 * n_pts, 4), dtype=np.float64)
+    b_vec = np.zeros(2 * n_pts, dtype=np.float64)
+    for i, ((x, y), (u, v)) in enumerate(zip(src_pts, dst_pts)):
+        A[2 * i]     = [ x, -y, 1, 0]
+        A[2 * i + 1] = [ y,  x, 0, 1]
+        b_vec[2 * i]     = u
+        b_vec[2 * i + 1] = v
+
+    params, _, _, _ = np.linalg.lstsq(A, b_vec, rcond=None)
+    a_p, b_p, c_p, d_p = params
+    if abs(a_p) < 1e-6 and abs(b_p) < 1e-6:
         return None, None
 
-    scale   = np.linalg.norm(dst_vec) / src_len
-    angle   = np.arctan2(dst_vec[1], dst_vec[0]) - np.arctan2(src_vec[1], src_vec[0])
-    cos_a   = scale * np.cos(angle)
-    sin_a   = scale * np.sin(angle)
-    tx      = tre[0] - (cos_a * re[0] - sin_a * re[1])
-    ty      = tre[1] - (sin_a * re[0] + cos_a * re[1])
-    M       = np.array([[cos_a, -sin_a, tx],
-                        [sin_a,  cos_a, ty]], dtype=np.float64)
+    M = np.array([[a_p, -b_p, c_p],
+                  [b_p,  a_p, d_p]], dtype=np.float64)
 
     clean = cv2.warpAffine(
         bgr_img, M, (FACE_OUT_SIZE, FACE_OUT_SIZE),
@@ -844,24 +851,21 @@ def align_face(bgr_img, right_eye, left_eye, nose_tip):
         borderMode=cv2.BORDER_REPLICATE
     )
 
-    # Eyes are exact by construction (transform was solved from eye points).
-    # The nose was NOT used in the transform, so it lands wherever the
-    # similarity transform naturally places it — draw it at that actual
-    # position rather than the fixed target (63,70), which would appear
-    # misaligned in the corner thumbnail whenever the face geometry differs
-    # slightly from the canonical template.
-    nt = np.float64(nose_tip)
-    nose_x = int(round(cos_a * nt[0] - sin_a * nt[1] + tx))
-    nose_y = int(round(sin_a * nt[0] + cos_a * nt[1] + ty))
-    nose_canvas = (
-        max(0, min(FACE_OUT_SIZE - 1, nose_x)),
-        max(0, min(FACE_OUT_SIZE - 1, nose_y)),
-    )
+    # Draw landmark dots at their actual transformed positions so the
+    # corner thumbnail always shows where the landmarks truly landed.
+    def _map(pt):
+        x, y = float(pt[0]), float(pt[1])
+        mx = int(round(a_p * x - b_p * y + c_p))
+        my = int(round(b_p * x + a_p * y + d_p))
+        return (max(0, min(FACE_OUT_SIZE - 1, mx)),
+                max(0, min(FACE_OUT_SIZE - 1, my)))
+
+    nose_canvas = _map(nose_tip)
 
     display = clean.copy()
-    cv2.circle(display, tuple(TARGET_RIGHT_EYE.astype(int)), 4, COLOR_RIGHT_EYE, -1)
-    cv2.circle(display, tuple(TARGET_LEFT_EYE.astype(int)),  4, COLOR_LEFT_EYE,  -1)
-    cv2.circle(display, nose_canvas,                         4, COLOR_NOSE,      -1)
+    cv2.circle(display, _map(right_eye), 4, COLOR_RIGHT_EYE, -1)
+    cv2.circle(display, _map(left_eye),  4, COLOR_LEFT_EYE,  -1)
+    cv2.circle(display, nose_canvas,     4, COLOR_NOSE,      -1)
 
     return clean, display
 
