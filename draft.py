@@ -811,39 +811,18 @@ def align_face(bgr_img, right_eye, left_eye, nose_tip):
                    (used for GUI corner thumbnails)
         (None, None) if the transform cannot be estimated.
     """
-    # Least-squares similarity transform from all three landmarks.
-    #
-    # A similarity transform has 4 DOF: [a, b, c, d] where
-    #   u = a*x - b*y + c      (a = s·cos θ, b = s·sin θ)
-    #   v = b*x + a*y + d
-    #
-    # With 3 source→target pairs we have 6 equations and 4 unknowns —
-    # an over-determined system solved by least squares (np.linalg.lstsq).
-    # This minimises total squared landmark error across all three points
-    # simultaneously, satisfying the spec requirement that eyes sit at
-    # (40,40)/(85,40) and nose at (63,70), while avoiding the spurious
-    # rotation introduced by LMEDS (which treats point pairs as inliers/
-    # outliers — inappropriate when all three are trusted measurements).
-    src_pts = np.array([right_eye, left_eye, nose_tip], dtype=np.float64)
-    dst_pts = np.array([TARGET_RIGHT_EYE, TARGET_LEFT_EYE, TARGET_NOSE_TIP],
-                       dtype=np.float64)
+    # cv2.getAffineTransform maps exactly 3 source points to 3 destination
+    # points, giving a unique 6-DOF affine matrix.  Applied here it
+    # guarantees that right_eye, left_eye, and nose_tip land at precisely
+    # (40,40), (85,40), and (63,70) in the 125×125 output — the face is
+    # stretched, rotated, and scaled to fit those fixed coordinates.
+    # Landmark dots are then always drawn at the same fixed positions.
+    src = np.float32([right_eye, left_eye, nose_tip])
+    dst = np.float32([TARGET_RIGHT_EYE, TARGET_LEFT_EYE, TARGET_NOSE_TIP])
 
-    n_pts = len(src_pts)
-    A = np.zeros((2 * n_pts, 4), dtype=np.float64)
-    b_vec = np.zeros(2 * n_pts, dtype=np.float64)
-    for i, ((x, y), (u, v)) in enumerate(zip(src_pts, dst_pts)):
-        A[2 * i]     = [ x, -y, 1, 0]
-        A[2 * i + 1] = [ y,  x, 0, 1]
-        b_vec[2 * i]     = u
-        b_vec[2 * i + 1] = v
-
-    params, _, _, _ = np.linalg.lstsq(A, b_vec, rcond=None)
-    a_p, b_p, c_p, d_p = params
-    if abs(a_p) < 1e-6 and abs(b_p) < 1e-6:
+    M = cv2.getAffineTransform(src, dst)
+    if M is None:
         return None, None
-
-    M = np.array([[a_p, -b_p, c_p],
-                  [b_p,  a_p, d_p]], dtype=np.float64)
 
     clean = cv2.warpAffine(
         bgr_img, M, (FACE_OUT_SIZE, FACE_OUT_SIZE),
@@ -851,21 +830,11 @@ def align_face(bgr_img, right_eye, left_eye, nose_tip):
         borderMode=cv2.BORDER_REPLICATE
     )
 
-    # Draw landmark dots at their actual transformed positions so the
-    # corner thumbnail always shows where the landmarks truly landed.
-    def _map(pt):
-        x, y = float(pt[0]), float(pt[1])
-        mx = int(round(a_p * x - b_p * y + c_p))
-        my = int(round(b_p * x + a_p * y + d_p))
-        return (max(0, min(FACE_OUT_SIZE - 1, mx)),
-                max(0, min(FACE_OUT_SIZE - 1, my)))
-
-    nose_canvas = _map(nose_tip)
-
+    # Dots are always at the exact target positions — they never move.
     display = clean.copy()
-    cv2.circle(display, _map(right_eye), 4, COLOR_RIGHT_EYE, -1)
-    cv2.circle(display, _map(left_eye),  4, COLOR_LEFT_EYE,  -1)
-    cv2.circle(display, nose_canvas,     4, COLOR_NOSE,      -1)
+    cv2.circle(display, tuple(TARGET_RIGHT_EYE.astype(int)), 4, COLOR_RIGHT_EYE, -1)
+    cv2.circle(display, tuple(TARGET_LEFT_EYE.astype(int)),  4, COLOR_LEFT_EYE,  -1)
+    cv2.circle(display, tuple(TARGET_NOSE_TIP.astype(int)),  4, COLOR_NOSE,      -1)
 
     return clean, display
 
