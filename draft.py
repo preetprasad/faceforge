@@ -844,10 +844,24 @@ def align_face(bgr_img, right_eye, left_eye, nose_tip):
         borderMode=cv2.BORDER_REPLICATE
     )
 
+    # Eyes are exact by construction (transform was solved from eye points).
+    # The nose was NOT used in the transform, so it lands wherever the
+    # similarity transform naturally places it — draw it at that actual
+    # position rather than the fixed target (63,70), which would appear
+    # misaligned in the corner thumbnail whenever the face geometry differs
+    # slightly from the canonical template.
+    nt = np.float64(nose_tip)
+    nose_x = int(round(cos_a * nt[0] - sin_a * nt[1] + tx))
+    nose_y = int(round(sin_a * nt[0] + cos_a * nt[1] + ty))
+    nose_canvas = (
+        max(0, min(FACE_OUT_SIZE - 1, nose_x)),
+        max(0, min(FACE_OUT_SIZE - 1, nose_y)),
+    )
+
     display = clean.copy()
     cv2.circle(display, tuple(TARGET_RIGHT_EYE.astype(int)), 4, COLOR_RIGHT_EYE, -1)
     cv2.circle(display, tuple(TARGET_LEFT_EYE.astype(int)),  4, COLOR_LEFT_EYE,  -1)
-    cv2.circle(display, tuple(TARGET_NOSE_TIP.astype(int)),  4, COLOR_NOSE,      -1)
+    cv2.circle(display, nose_canvas,                         4, COLOR_NOSE,      -1)
 
     return clean, display
 
