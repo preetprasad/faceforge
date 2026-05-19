@@ -1146,43 +1146,23 @@ def bulk_process_folder(folder_path, progress_cb=None):
 
         if all(emb is not None for emb in embeddings):
             X      = np.vstack(embeddings)
-            eps    = 0.38
-            labels = DBSCAN(eps=eps, min_samples=1).fit(X).labels_
+            labels = DBSCAN(eps=0.38, min_samples=1).fit(X).labels_
             labels = _merge_close_singletons(X, labels, face_sources)
 
         else:
-            # ── Tier 2: OpenCV SFace (cv2.FaceRecognizerSF, 99.4% LFW) ─────
-            # Uses sface.onnx (9.9 MB int8 model) bundled in the project.
-            # Available in base opencv-python via the objdetect module —
-            # no additional pip install required.
-            sface_embs = [_get_sface_embedding(crop) for crop in face_crops]
-
-            if all(emb is not None for emb in sface_embs):
-                X      = np.vstack(sface_embs)
-                # SFace embeddings are best separated using cosine distance.
-                # eps=0.45 was tuned on the 12 sample images (26 faces);
-                # it gives 8 clusters (vs dlib's 7) and silhouette=0.23
-                # (vs dlib's 0.27) — comparable quality without face_recognition.
-                eps    = 0.45
-                labels = DBSCAN(eps=eps, min_samples=1,
-                                metric='cosine').fit(X).labels_
-                labels = _merge_close_singletons(X, labels, face_sources)
-
-            else:
-                # ── Tier 3: pure-NumPy LBP (no model file, last resort) ────
-                # Non-discriminative for identity — used only when both
-                # face_recognition and sface.onnx are unavailable.
-                features = [compute_lbp_features(c) for c in face_crops]
-                valid    = [(c, s, f) for c, s, f in
-                            zip(face_crops, face_sources, features)
-                            if f is not None]
-                if not valid:
-                    return len(img_files), total_faces, 0, elapsed
-                face_crops   = [c for c, _, _ in valid]
-                face_sources = [s for _, s, _ in valid]
-                X      = np.vstack([f for _, _, f in valid])
-                labels = DBSCAN(eps=0.30, min_samples=1,
-                                metric="cosine").fit(X).labels_
+            # Dependency-safe fallback: pure NumPy LBP descriptors.
+            # Keeps the project functional on machines without face_recognition.
+            features = [compute_lbp_features(c) for c in face_crops]
+            valid    = [(c, s, f) for c, s, f in
+                        zip(face_crops, face_sources, features)
+                        if f is not None]
+            if not valid:
+                return len(img_files), total_faces, 0, elapsed
+            face_crops   = [c for c, _, _ in valid]
+            face_sources = [s for _, s, _ in valid]
+            X      = np.vstack([f for _, _, f in valid])
+            labels = DBSCAN(eps=0.30, min_samples=1,
+                            metric="cosine").fit(X).labels_
 
         n_identities = len({lbl for lbl in labels if lbl >= 0})
 
