@@ -1354,9 +1354,12 @@ class FaceGUI:
             self._set_status(f"Processing image {done} / {total}...")
 
         n_imgs, n_faces, n_ids, elapsed = bulk_process_folder(folder, progress_cb)
+        out_dir = os.path.join(os.path.dirname(os.path.abspath(folder)),
+                               "Processed_Images")
         self._set_status(
             f"Total {n_imgs} images processed in {elapsed:.2f} seconds.  "
-            f"{n_faces} faces detected corresponding to {n_ids} unique identities."
+            f"{n_faces} faces detected corresponding to {n_ids} unique identities.\n"
+            f"Saved {n_faces} Identity_N_face_M.jpg files to: {out_dir}"
         )
 
 
