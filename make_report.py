@@ -52,18 +52,18 @@ def bullet(text):
     return p
 
 def iteration_table(rows):
-    """Render a compact iteration history table: (Version, Approach, Metric, Outcome)."""
-    tbl = doc.add_table(rows=1, cols=4)
+    """Render a compact iteration table: (Version, Change, Outcome)."""
+    tbl = doc.add_table(rows=1, cols=3)
     tbl.style = 'Table Grid'
     hdr = tbl.rows[0].cells
-    headers = ['Version', 'Approach', 'Metric', 'Outcome']
+    headers = ['Version', 'Change', 'Outcome']
     for i, htext in enumerate(headers):
         hdr[i].text = htext
         hdr[i].paragraphs[0].runs[0].bold = True
         hdr[i].paragraphs[0].runs[0].font.size = Pt(9)
-    for ver, approach, metric, outcome in rows:
+    for ver, change, outcome in rows:
         row = tbl.add_row()
-        for i, v in enumerate([ver, approach, metric, outcome]):
+        for i, v in enumerate([ver, change, outcome]):
             row.cells[i].text = v
             for run in row.cells[i].paragraphs[0].runs:
                 run.font.size = Pt(9)
@@ -87,171 +87,166 @@ r3 = t3.add_run('Preet Prasad — 23857493')
 r3.font.size = Pt(11); r3.font.name = 'Arial'
 t3.paragraph_format.space_after = Pt(4)
 
-# -- 1. Introduction
+# -- 1. Introduction + Baseline vs Final
 h1('1. Introduction')
 body(
-    'This report describes the design and implementation of a face detection and identity '
-    'clustering system for the CITS4402 project. The system processes 640×480 colour images '
-    '(1–4 faces), detects faces, localises three landmarks (right eye, left eye, nose tip), '
-    'aligns each face to a 125×125 crop, and clusters faces across a folder into unique '
-    'identities. The pipeline uses a tiered approach: MediaPipe BlazeFace and FaceLandmarker '
-    'provide fast detection and landmarks; a fully self-contained fallback built on OpenCV '
-    'Haar cascades and the Hough circle transform (Lab 04) handles the case where MediaPipe '
-    'is unavailable. For clustering, 128-D dlib ResNet embeddings (via face_recognition) '
-    'feed DBSCAN. Each section below includes a development-iteration table showing how the '
-    'approach evolved from a naive baseline to the final method.'
+    'This report describes the face detection and identity clustering system implemented '
+    'for the CITS4402 project. The system processes 640×480 colour images (1–4 faces), '
+    'detects faces, localises three landmarks (right eye, left eye, nose tip), aligns each '
+    'face to a 125×125 crop, and clusters faces across a folder into unique identities. '
+    'The pipeline uses MediaPipe BlazeFace and FaceLandmarker when available, with a fully '
+    'self-contained fallback built on OpenCV Haar cascades and the Hough circle transform '
+    '(Lab 04). For clustering, 128-D dlib ResNet embeddings (via face_recognition) feed '
+    'DBSCAN. The table below shows the headline measured outcomes from the naive starting '
+    'point to the final implementation; subsequent sections detail each task\'s development.'
 )
+
+h2('Baseline vs Final (measured on the 12 sample images)')
+tbl = doc.add_table(rows=1, cols=3)
+tbl.style = 'Table Grid'
+hdr = tbl.rows[0].cells
+for i, htext in enumerate(['Metric', 'Naive baseline', 'Final implementation']):
+    hdr[i].text = htext
+    hdr[i].paragraphs[0].runs[0].bold = True
+    hdr[i].paragraphs[0].runs[0].font.size = Pt(9)
+for row in [
+    ('Face detection',           '11/12 images (4.jpg missed)', '12/12 images, all counts correct'),
+    ('Landmark detection',       '61% both-eyes (17/28 faces)', '100% both-eyes (26/26 faces)'),
+    ('Landmarks inside box',     'not measured',                '100% RE, 100% LE, 100% nose'),
+    ('Alignment success',        '61%, no similarity transform','100%, exact landmark targets (0 px residual)'),
+    ('Identity clustering',      'not implemented',             'eps=0.38, 6 clusters from 26 faces'),
+]:
+    r = tbl.add_row()
+    for i, v in enumerate(row):
+        r.cells[i].text = v
+        r.cells[i].paragraphs[0].runs[0].font.size = Pt(9)
 
 # -- 2. Face Detection
 h1('2. Face Detection (Task 2)')
 
 h2('Development Iterations')
 iteration_table([
-    ('v1 (naive)',
-     'Single haarcascade_frontalface_default, no skin filter',
-     '11/12 images',
-     '4.jpg missed entirely; false positives on flowers (3.jpg) and shoulders (12.jpg)'),
+    ('v1 (baseline)',
+     'Haar cascade (haarcascade_frontalface_default) only, no skin filter',
+     '11/12 images; 4.jpg missed entirely'),
     ('v2',
-     '+ haarcascade_frontalface_alt2 (catches tilted faces) + IoU-NMS to merge cascades',
-     '12/12 images',
-     'All faces found but still some false positives on warm-coloured backgrounds'),
+     'Added MediaPipe BlazeFace (short-range + full-range) as primary detector; '
+     'Haar retained as fallback',
+     '12/12 images, but false positives: 5 boxes on 11.jpg (small body region), '
+     '1 face missed on 12.jpg (Ross failed cascade re-verification)'),
     ('v3',
-     '+ YCrCb-only skin filter (20% threshold)',
-     '12/12 images',
-     'Removed warm-background FPs but rejected one valid face under unusual lighting'),
+     'Added skin-coverage bypass for verification (skin ≥ 75% AND box ≥ 60 px) — '
+     'trust strong skin signal over cascade re-run; cap result at 4 (spec maximum)',
+     'Fixed 12.jpg (Ross retained) and 11.jpg (small body box dropped); 12/12 correct'),
     ('v4',
-     '+ ROI re-verification (re-run cascade on candidate ROI interior)',
-     '12/12 images',
-     'Eliminated all remaining false positives reliably'),
-    ('v5',
-     'Switched skin filter to YCrCb ∩ HSV intersection',
-     '12/12 images',
-     'Stricter but rejected darker skin tones — too conservative'),
-    ('v6 (final)',
-     'MediaPipe BlazeFace primary + Haar fallback; three-rule majority-vote skin filter',
-     '12/12 images, 35 ms',
-     'Fastest and most robust; ROI verification kept in Haar fallback path'),
+     'Replaced YCrCb-only skin filter with three-rule majority vote '
+     '(YCrCb + HSV wrap-around + normalised-RGB)',
+     'More tolerant of unusual lighting/darker skin without losing FP rejection'),
+    ('v5 (final)',
+     'CLAHE replaces equalizeHist for the Haar-fallback grayscale input',
+     '12/12 maintained; better local detail for the Haar fallback path'),
 ])
 
 h2('Final Method')
 body(
-    'The primary detector is MediaPipe BlazeFace (short-range 230 KB + full-range 1.1 MB '
-    'TFLite models, ≈15 ms/image combined). Results from both models on the original and '
-    'horizontally-flipped image are merged with IoU-NMS (threshold 0.28, containment > 72%). '
-    'Each box is expanded 20% up, 10% left/right, 15% down to capture the full head. '
-    'The result is capped at 4 (spec maximum) by ranking on model confidence + skin coverage.'
-)
-body(
-    'When MediaPipe is unavailable, the Haar fallback (haarcascade_frontalface_default + '
-    'alt2, 28% upward expansion, ROI re-verification, profile cascade as last resort) '
-    'achieves 12/12 on the sample set at ≈53 ms/image.'
+    'Primary: MediaPipe BlazeFace short-range (230 KB) + full-range (1.1 MB) TFLite models, '
+    'run on the original and horizontally-flipped image. Results merged with IoU-NMS '
+    '(threshold 0.28, containment > 72%). Each box expanded 20% up, 10% left/right, '
+    '15% down to capture the full head. Capped at 4 by ranking on confidence + skin '
+    'coverage score. Fallback when MediaPipe unavailable: haarcascade_frontalface_default '
+    '+ alt2, 28% upward expansion, ROI re-verification, profile cascade as last resort.'
 )
 
 h2('Skin-Colour Segmentation (Mandatory)')
 body(
-    'Three-rule majority-vote mask (Lab 05 technique): a pixel is skin when at least two of '
-    'three rules agree — YCrCb (Cr ∈ [133,183], Cb ∈ [75,135]), HSV (H ∈ [0,28] ∪ [160,179] '
-    'wrap-around for reddish skin), and normalised-RGB (R > G−5, R > B, R > 70). Majority '
-    'vote tolerates one rule disagreeing under unusual lighting while still rejecting '
-    'backgrounds that fail all three. Morphological open + close (5×5 ellipse) before the '
-    '20% pixel-ratio threshold.'
+    'Three-rule majority vote (Lab 05 technique): a pixel is skin when ≥ 2 of three rules '
+    'agree — YCrCb (Cr ∈ [133,183], Cb ∈ [75,135]), HSV (H ∈ [0,28] ∪ [160,179]), '
+    'normalised RGB (R > G−5, R > B, R > 70). Morphological open + close (5×5 ellipse) '
+    'before the 20% pixel-ratio threshold.'
 )
 
 h2('Alternatives Considered')
 bullet('dlib HOG face detector: lower recall on non-frontal faces vs BlazeFace.')
-bullet('OpenCV YuNet (cv2.FaceDetectorYN): needs separate ONNX file not bundled with opencv-python.')
+bullet('OpenCV YuNet: needs a separate ONNX file not bundled with opencv-python.')
 
 # -- 3. Landmark Detection
 h1('3. Facial Landmark Detection (Task 3)')
 
 h2('Development Iterations')
 iteration_table([
-    ('v1 (naive)',
+    ('v1 (baseline)',
      'haarcascade_eye.xml only',
-     '61% both-eyes (17/28)',
-     'Cascade misses eyes on tilted, glasses, or partially-occluded faces'),
+     '61% both-eyes (17/28); fails on tilted, glasses, occluded faces'),
     ('v2',
-     'Hough circle transform (Lab 04) with edge-overlap scoring on upper face ROI',
-     '100% both-eyes',
-     'Major improvement; eyes are reliable circular dark regions'),
+     'Hough circle transform with Lab 04 edge-overlap scoring on upper 58% ROI; '
+     'haarcascade_eye_tree_eyeglasses + directional eye cascades as chained fallbacks; '
+     'nose tip via intensity minimum of Gaussian-blurred patch (not fixed proportion)',
+     '100% both-eyes on all 26 faces'),
     ('v3',
-     '+ haarcascade_eye_tree_eyeglasses + directional eye cascades as Hough fallback',
-     '100% both-eyes',
-     'Handles edge cases where Hough fails (over-saturated or low-contrast eyes)'),
+     'Added MediaPipe FaceLandmarker (iris landmarks 468/473, nose landmark 1) '
+     'as primary path',
+     '100% maintained; sub-pixel iris precision'),
     ('v4',
-     '+ Nose intensity-minimum search (replaces fixed geometric guess)',
-     '100% nose in-box',
-     'Nose now found from data (shadow beneath nose tip) not fixed proportion'),
-    ('v5',
-     '+ MediaPipe FaceLandmarker primary (iris landmarks 468/473, nose 1)',
-     '100% all landmarks',
-     'Sub-pixel iris precision; Hough/cascades demoted to fallback'),
-    ('v6',
-     '+ Per-eye position validation (rejects forehead-misplaced iris landmarks)',
-     '100% all in-box',
-     'Catches MediaPipe failures on extreme expressions (e.g., 7.jpg Chandler)'),
-    ('v7 (final)',
-     '+ Integral-projection profile + symmetry-mirror fallback; CLAHE preprocessing',
-     '100% even MediaPipe-off',
-     'Robust 7-tier chain works without any neural network'),
+     'Per-eye position validation: reject MediaPipe landmarks where any single eye is '
+     'outside the top 8–60% of the face box, or eyes differ in y by > 20% face height',
+     'Caught a Chandler-in-7.jpg case where MediaPipe placed the right eye on the '
+     'forehead, causing a badly tilted alignment'),
+    ('v5 (final)',
+     'Integral-projection profile + symmetry-mirror fallback tiers; CLAHE preprocessing',
+     '100% even with MediaPipe disabled (verified by forcing the landmarker off)'),
 ])
 
 h2('Final Method')
 body(
-    'Primary: MediaPipe FaceLandmarker (face_landmarker.task, 3.6 MB) returns 478 3-D '
-    'landmarks. Iris landmarks 468/473 are sorted by x for right/left assignment; nose '
-    'tip is landmark 1. Per-eye validation (eye-band position, separation 16–78%, vertical '
-    'gap < 20% face height) rejects implausible detections so the fallback can take over.'
-)
-body(
-    'Fallback chain: (1) Hough circles with Lab 04 edge-overlap scoring on the upper 58% '
-    'ROI; (2) haarcascade_eye_tree_eyeglasses; (3) directional eye cascades on each face '
-    'half; (4) integral-projection profile (darkest row in upper face = eye height); '
-    '(5) symmetry-mirror through face centre if one eye is found; (6) proportional '
-    'geometric estimate. Nose tip always located as the intensity minimum of a '
-    'Gaussian-blurred patch in the central 30–70% × 50–72% region.'
+    'Seven-tier fallback chain (each tier only runs if the previous failed): '
+    '(1) MediaPipe FaceLandmarker on a padded ROI; (2) Hough circles with Lab 04 '
+    'edge-overlap scoring; (3) haarcascade_eye_tree_eyeglasses; (4) directional eye '
+    'cascades; (5) integral-projection profile (darkest row in upper face); '
+    '(6) symmetry mirror if one eye is found; (7) proportional geometric estimate. '
+    'Nose tip always from intensity minimum in the central 30–70% × 50–72% region.'
 )
 
 h2('Alternatives Considered')
-bullet('dlib 68-point shape predictor: 68 MB model file, too large for submission zip.')
+bullet('dlib 68-point shape predictor: 68 MB model file, too large for submission.')
 
 # -- 4. Alignment
 h1('4. Facial Alignment (Task 4)')
 
 h2('Development Iterations')
 iteration_table([
-    ('v1 (naive)',
-     'cv2.getRotationMatrix2D for rotation, then separate crop + resize steps',
-     '61% success',
-     'Failed on faces with non-zero tilt; eyes not at exact target positions'),
+    ('v1 (baseline)',
+     'getRotationMatrix2D for rotation, then separate crop + resize. '
+     'Does not use a similarity transform; landmarks not at target positions',
+     '61% success (tied to landmark failures)'),
     ('v2',
-     'cv2.estimateAffinePartial2D with LMEDS on all 3 landmarks',
-     '100% success',
-     'Eyes/nose close to targets but visible tilt on faces with non-standard geometry'),
+     'cv2.estimateAffinePartial2D with LMEDS on all three landmarks',
+     '100% success but visible tilt artefact when nose constraint is geometrically '
+     'inconsistent with eyes (e.g., Monica in 7.jpg, eyes both at y=133 but face '
+     'aligned with ~20° rotation)'),
     ('v3',
-     'Analytical 2-point similarity from eyes only',
-     '100% success',
-     'Eyes exact at (40,40)/(85,40) but nose drifted from (63,70) — flagged in review'),
+     'Analytical 2-point similarity transform from the two eye points only',
+     '100% no tilt; eyes exact at (40,40) and (85,40); but nose drifted from (63,70) '
+     '— flagged by the lab facilitator'),
     ('v4',
-     'Least-squares similarity transform over 3 landmarks',
-     '100% success, ~5 px residual',
-     'Best similarity transform fit; nose still ~5 px from (63,70) on average'),
+     'Least-squares similarity transform over all three landmarks (closed form via '
+     'np.linalg.lstsq on the 6-equation 4-unknown system)',
+     '100%; reduced tilt vs LMEDS but still measured max 9.5 px residual on the '
+     'sample set because a 4-DOF model cannot exactly fit 3 arbitrary point pairs'),
     ('v5 (final)',
-     'cv2.getAffineTransform with all 3 points',
-     '100% success, 0 px residual',
-     'Exact mapping: every landmark lands precisely at its target coordinate'),
+     'cv2.getAffineTransform with all three landmarks',
+     '100%; verified 0 px residual on all 26 faces — every landmark lands precisely '
+     'at its target coordinate'),
 ])
 
 h2('Final Method')
 body(
     'cv2.getAffineTransform takes exactly 3 source→target pairs and returns the unique '
     '6-DOF affine matrix that maps them exactly. A single cv2.warpAffine call with output '
-    'size (125, 125) simultaneously aligns, crops, resizes, and (where face geometry '
-    'differs from the canonical template) lightly stretches the face so that '
-    'right_eye → (40, 40), left_eye → (85, 40), and nose_tip → (63, 70) are all exact. '
-    'borderMode=BORDER_REPLICATE fills out-of-bounds pixels with the nearest valid pixel, '
-    'preventing black borders. Landmark dots in the corner thumbnail are drawn at the '
-    'fixed target coordinates and never move between images.'
+    'size (125, 125) simultaneously aligns, crops, resizes, and (where needed) lightly '
+    'stretches the face so right_eye → (40, 40), left_eye → (85, 40), '
+    'nose_tip → (63, 70) are all exact. borderMode=BORDER_REPLICATE fills out-of-bounds '
+    'pixels, preventing black borders. Landmark dots on the corner thumbnail are drawn '
+    'at the fixed target coordinates and never move between images.'
 )
 
 # -- 5. Identity Clustering
@@ -259,42 +254,25 @@ h1('5. Identity Clustering (Task 5)')
 
 h2('Development Iterations')
 iteration_table([
-    ('v1 (naive)',
-     'Not implemented in baseline',
-     '—',
-     'Task 5 missing entirely'),
+    ('v1 (baseline)',
+     'Not implemented in the baseline code',
+     '—'),
     ('v2',
-     'Basic 256-bin LBP (5×5 grid, 6400-D) + DBSCAN cosine',
-     'silhouette 0.04',
-     'LBP not identity-discriminative — distances between different people similar'),
+     '128-D dlib ResNet embeddings via face_recognition (explicitly permitted by spec); '
+     'DBSCAN with min_samples=1 and Euclidean distance',
+     'Clusters identities meaningfully; see eps sweep below'),
     ('v3',
-     'dlib ResNet 128-D embeddings via face_recognition + DBSCAN Euclidean',
-     'silhouette 0.21',
-     '5× improvement; 6 clusters from 5 Friends characters (one over-split)'),
-    ('v4',
-     '+ Singleton-merge post-processing (merge isolated faces below 0.515)',
-     'silhouette 0.21',
+     'Singleton-merge post-processing: merge isolated one-face clusters into the nearest '
+     'compatible cluster if distance < 0.515 AND no shared source image',
      'Repairs cases where one image of a person has unusual pose/lighting'),
-    ('v5 (final)',
-     '+ LBP fallback upgraded to LBP-u2 7×7 multi-scale (Ahonen et al. 2006)',
-     'fallback silhouette 0.11 (3× v2)',
-     'Best handcrafted descriptor for the case where face_recognition is unavailable'),
+    ('v4',
+     'Upgraded the LBP fallback descriptor (used when face_recognition is unavailable) '
+     'from basic 256-bin 5×5 to LBP-u2 7×7 multi-scale (Ahonen et al. 2006): '
+     '59 uniform-pattern bins × 49 cells × 2 radii = 5782-D L2-normalised',
+     'LBP fallback silhouette at peak: 0.04 → 0.11 (≈ 3× improvement)'),
 ])
 
-h2('Final Method')
-body(
-    '128-D L2-normalised face embeddings from the dlib ResNet model (via face_recognition, '
-    'explicitly permitted by the spec: "You are allowed to use a pre-trained model for this"). '
-    'DBSCAN with eps=0.38, min_samples=1, Euclidean distance. eps=0.38 was selected by '
-    'sweeping 0.35–0.45 and choosing the value with the highest silhouette score (0.214 '
-    'with 6 clusters). A post-processing pass merges singleton clusters whose nearest '
-    'neighbour is within 0.515 and does not share a source image. When face_recognition '
-    'is unavailable, the fallback is multi-scale uniform LBP-u2 on a 7×7 grid (Ahonen '
-    'et al. 2006 formulation: 59 uniform-pattern bins per cell × 49 cells × 2 radii = '
-    '5782-D, L2-normalised).'
-)
-
-h2('DBSCAN eps Sweep')
+h2('DBSCAN eps Sweep (final code, 26 faces)')
 tbl = doc.add_table(rows=1, cols=3)
 tbl.style = 'Table Grid'
 hdr = tbl.rows[0].cells
@@ -303,10 +281,10 @@ for r in hdr:
     r.paragraphs[0].runs[0].bold = True
     r.paragraphs[0].runs[0].font.size = Pt(9)
 for eps, nc, sil in [
-    (0.35, 9,  0.1912),
-    (0.38, 6,  0.2141),
-    (0.40, 4,  0.1233),
-    (0.43, 2,  0.1419),
+    (0.35, 10, 0.1408),
+    (0.38, 6,  0.1021),
+    (0.40, 4,  0.0954),
+    (0.43, 1,  0.0000),
     (0.45, 1,  0.0000),
 ]:
     row = tbl.add_row()
@@ -318,24 +296,31 @@ for eps, nc, sil in [
         if best:
             row.cells[i].paragraphs[0].runs[0].bold = True
 
+body(
+    'eps=0.38 was selected because 6 clusters is closest to the 5-identity ground truth '
+    '(the 5 sample-image characters), with one slight over-split for a character whose '
+    'appearance varies significantly between images. eps=0.35 has marginally higher '
+    'silhouette (0.14) but over-splits to 10 clusters. eps=0.40 collapses two distinct '
+    'identities. min_samples=1 ensures every face joins a cluster (no noise points).'
+)
+
 h2('Alternatives Considered')
 bullet('k-means: cannot be used — number of identities is unknown a priori.')
 bullet('Agglomerative clustering: rejected because DBSCAN is explicitly named in the spec.')
 
 # -- 6. Final Results
 h1('6. Final Results')
-body('On 12 sample images (26 detected faces, all counts matching ground truth):')
-bullet('Face detection: 12/12 images correct; avg pipeline 35 ms (MediaPipe), 53 ms (Haar fallback).')
-bullet('Landmark detection: 100% both-eyes; 100% right eye, 100% left eye, 100% nose inside the face box.')
-bullet('Alignment: 100% success; all three landmarks at exact target positions; all outputs 125×125.')
-bullet('Clustering: 6 DBSCAN clusters from 26 faces (eps=0.38, silhouette=0.21).')
+body('Measured on the 12 sample images (26 detected faces, all face counts match ground truth):')
+bullet('Face detection: 12/12 images correct; avg detection ≈ 39 ms (MediaPipe path).')
+bullet('Landmark detection: 100% both eyes; 100% RE, 100% LE, 100% nose inside the face box.')
+bullet('Alignment: 100% success; 0 px residual on every landmark; all outputs exactly 125×125.')
+bullet('Clustering: 6 DBSCAN clusters from 26 faces (eps=0.38, silhouette = 0.10).')
 body(
-    'Known limitations: (1) MediaPipe model files (4.9 MB total) must accompany the script — '
-    'the Haar/Hough fallback covers their absence automatically. (2) face_recognition (dlib) '
-    'must be pip-installed for the best clustering — the LBP-u2 fallback works without it '
-    'but with reduced discrimination. (3) DBSCAN slightly over-splits one identity (6 '
-    'clusters from 5 characters) because one character\'s appearance varies significantly '
-    'across images; eps=0.40 would merge to 4 clusters at the cost of silhouette score.'
+    'Known limitations: (1) MediaPipe model files (≈ 4.9 MB total) must accompany the '
+    'script — the Haar/Hough fallback covers their absence automatically. (2) face_recognition '
+    '(dlib) must be pip-installed for best clustering — the LBP-u2 fallback works without '
+    'it but with reduced discrimination. (3) eps=0.38 over-splits one identity (6 clusters '
+    'from 5 characters); eps=0.40 merges two distinct characters, so 6 is the better error.'
 )
 
 doc.save('/Users/preet/Documents/GitHub/face-detection/Report.docx')
