@@ -17,21 +17,26 @@
 #             Three-rule majority-vote skin filter (YCrCb + HSV hue wrap-around
 #             + normalised-RGB, Lab 05) rejects non-face false positives.
 #
-#   Task 3 -- Hough circle transform on the face ROI to localise eyes
-#             with edge-overlap scoring (technique from Lab 04)
-#             + geometric estimate for the nose tip
+#   Task 3 -- MediaPipe FaceLandmarker (primary) for iris and nose landmarks.
+#             Fallback chain: Hough circle transform with edge-overlap scoring
+#             (Lab 04 technique), three Haar eye cascades, integral-projection
+#             profile, symmetry through the face centre line, and finally a
+#             proportional geometric estimate.  Nose tip located as the
+#             intensity minimum of a Gaussian-blurred central patch.
 #
 #   Task 4 -- cv2.getAffineTransform maps 3 detected landmarks exactly to
-#             fixed target positions inside a 125x125 canvas.  The final warp
-#             rotates/scales/crops the face and can add mild stretch so the
-#             eye and nose dots stay fixed; BORDER_REPLICATE avoids borders.
+#             their fixed target positions inside a 125x125 canvas.  The single
+#             warpAffine call rotates, scales, crops, and (where needed)
+#             stretches the face so the eye and nose dots always sit at
+#             (40,40), (85,40), (63,70).  BORDER_REPLICATE avoids black borders.
 #
 #   Task 5 -- 128-D dlib ResNet face embeddings (via face_recognition library,
 #             explicitly permitted by the specification: "You are allowed to use
-#             a pre-trained model for this").  Pure-NumPy LBP descriptors on a
-#             5x5 spatial grid serve as a dependency-free fallback when
-#             face_recognition is unavailable.  DBSCAN clusters faces
-#             automatically without requiring the number of identities.
+#             a pre-trained model for this").  Multi-scale uniform LBP-u2 on a
+#             7x7 spatial grid (Ahonen et al. 2006 formulation) serves as a
+#             dependency-free fallback when face_recognition is unavailable.
+#             DBSCAN clusters faces automatically, finding the number of
+#             unique identities without requiring it to be specified.
 #
 # Dependencies:
 #   opencv-python  numpy  Pillow  scikit-learn  face-recognition
@@ -156,8 +161,9 @@ def skin_segmentation_mask(bgr_img):
     )
     mask_rgb = (rgb_rule.astype(np.uint8) * 255)
 
-    # Majority vote: two colour spaces must agree.  This avoids the very noisy
-    # OR mask while being less brittle than the old YCrCb AND HSV intersection.
+    # Majority vote: at least two of the three rules must agree.  Less noisy
+    # than an OR of all three, and more robust than a strict AND intersection
+    # which can reject valid skin pixels under unusual lighting.
     votes = (
         (mask_ycc > 0).astype(np.uint8) +
         (mask_hsv > 0).astype(np.uint8) +
@@ -673,12 +679,17 @@ def detect_landmarks(bgr_img, face_box):
     """
     Detect three facial landmarks for one face.
 
-    Eyes:
-        Primary method  -- MediaPipe FaceLandmarker on the detected face ROI.
-        Fallback method -- Hough circle transform on a padded face ROI
-                           with Lab 04 edge-overlap scoring.
-        Cascade fallback -- haarcascade_eye.xml applied to the upper ROI.
-        Geometric fallback -- proportional position inside the face box.
+    Eye fallback chain (each tier only runs if the previous one failed or
+    was rejected by validation):
+        1. MediaPipe FaceLandmarker on the detected face ROI (primary).
+        2. Hough circle transform with Lab 04 edge-overlap scoring.
+        3. haarcascade_eye_tree_eyeglasses on the upper ROI.
+        4. haarcascade_righteye_2splits / lefteye_2splits on each half.
+        5. Integral-projection profile: darkest row in the upper face,
+           darkest column in each half — classic Viola-Jones era technique.
+        6. Mirror symmetry: if exactly one eye is found, reflect it through
+           the face's vertical centre line.
+        7. Proportional geometric estimate (final fallback).
 
     Nose tip:
         Located at the intensity minimum inside a central nose search
@@ -1029,24 +1040,23 @@ def compute_lbp_features(bgr_crop):
     """
     Multi-scale uniform LBP (LBP-u2) face descriptor on a 7×7 spatial grid.
 
-    Three improvements over the basic LBP from Ojala 1996, applied here as
-    used in the Ahonen et al. 2006 face-recognition paper:
+    Follows the Ahonen et al. 2006 face-recognition formulation:
 
       1. Uniform patterns only — 59 bins per cell instead of 256.  Non-uniform
-         patterns are mostly noise; collapsing them into a single bin removes
-         that noise and improves discrimination.
-      2. 7×7 spatial grid — finer than 5×5, captures local face structure
-         (eyes, nose, mouth regions) more precisely.
-      3. Multi-scale sampling — LBP computed at radii R=1 AND R=2, then
-         concatenated.  Captures texture at two scales: fine detail (R=1)
-         and broader structure (R=2).
+         patterns are mostly noise; collapsing them into a single catch-all
+         bin removes that noise and improves identity discrimination.
+      2. 7×7 spatial grid captures local face structure (eyes, nose, mouth
+         regions) precisely.
+      3. Multi-scale sampling at radii R=1 and R=2, concatenated.  R=1
+         captures fine detail; R=2 captures broader local structure.
 
-    Output dimensionality: 7 × 7 × 59 × 2 = 5782 (vs old 6400 with 256 bins).
-    Despite being slightly smaller, this descriptor is empirically 2-3× more
-    discriminative on the sample set (silhouette score 0.11 vs 0.04 for the
-    basic 256-bin LBP).  It still trails neural-network embeddings (dlib
-    ResNet ~0.27) because handcrafted texture features cannot match models
-    trained explicitly to minimise intra-class variance.
+    Output dimensionality: 7 × 7 × 59 × 2 = 5782, L2-normalised.
+
+    This descriptor is the dependency-free fallback used only when the
+    face_recognition / dlib path is unavailable.  Handcrafted texture
+    features cannot match neural-network embeddings trained explicitly to
+    minimise intra-class variance, but this formulation is the strongest
+    purely-numerical option without an extra model file.
 
     Returns a float32 vector of length 5782, or None on failure.
     """
