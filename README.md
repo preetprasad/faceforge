@@ -33,7 +33,7 @@ Image (loaded via Button A or B)
   │     └─ Haar eye cascade fallback → geometric estimate
   │
   ├─ Task 4: Face Alignment
-  │     cv2.estimateAffinePartial2D  →  cv2.warpAffine  →  125×125 crop
+  │     cv2.getAffineTransform  →  cv2.warpAffine  →  125×125 crop
   │     Landmarks mapped to: right eye (40,40), left eye (85,40), nose (63,70)
   │
   └─ Task 5: Identity Clustering  (bulk mode only)
@@ -65,7 +65,8 @@ face-detection/
 ├── draft.py                      # Main submission — all pipeline code + GUI
 ├── requirements.txt              # Python dependencies
 ├── README.md                     # This file
-├── Report.docx                   # Project report
+├── report.tex                    # Project report (LaTeX source, compile on Overleaf)
+├── Report.pdf                    # Compiled report (3 pages)
 │
 ├── blaze_face_short_range.tflite # MediaPipe BlazeFace short-range model (230 KB)
 ├── blaze_face_full_range.tflite  # MediaPipe BlazeFace full-range model (1.1 MB)
@@ -76,7 +77,6 @@ face-detection/
 │                                 # Contains Identity_N_face_M.jpg outputs
 │
 ├── test_baseline.py              # Automated test suite (detection / landmark / alignment)
-└── make_report.py                # Script that regenerates Report.docx
 ```
 
 > **Note:** `Processed_Images/` is deleted and recreated each time bulk processing runs. It is listed in `.gitignore` and is not part of the submission.
@@ -192,7 +192,7 @@ A sanity check rejects eye pairs with separation ratio outside [0.18, 0.65] of f
 
 ### Task 4 — Face Alignment
 
-`cv2.estimateAffinePartial2D` computes a **similarity transform** (rotation + uniform scale + translation) mapping the three detected landmarks to fixed target positions inside a 125×125 canvas. A single `cv2.warpAffine` call simultaneously aligns, crops, and resizes. `BORDER_REPLICATE` fills any out-of-bounds pixels, preventing black borders when faces are near the image edge.
+`cv2.getAffineTransform` computes a three-point affine warp from the detected eye/nose triangle to the fixed target triangle inside a 125×125 canvas. A single `cv2.warpAffine` call simultaneously aligns, crops, and resizes. The exact three-point fit keeps all thumbnail landmark dots fixed, and it may add mild non-uniform stretch when a detected source triangle is not geometrically similar to the canonical target triangle. `BORDER_REPLICATE` fills any out-of-bounds pixels, preventing black borders when faces are near the image edge.
 
 Target positions:
 - Subject's right eye → (40, 40)
