@@ -96,12 +96,14 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _MP_SHORT_FACE_MODEL = os.path.join(_BASE_DIR, "blaze_face_short_range.tflite")
 _MP_FULL_FACE_MODEL  = os.path.join(_BASE_DIR, "blaze_face_full_range.tflite")
 _MP_LANDMARK_MODEL   = os.path.join(_BASE_DIR, "face_landmarker.task")
-_SFACE_MODEL         = os.path.join(_BASE_DIR, "sface.onnx")
-
-_sface_recognizer = None   # lazily initialised on first use
 
 _MP_FACE_DETECTORS = {}
 _MP_FACE_LANDMARKER = None
+
+# A single CLAHE instance is reused across calls (creation has non-trivial cost).
+# CLAHE preserves local detail better than cv2.equalizeHist, which can wash out
+# face features under uneven lighting.
+_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
 
 # =============================================================================
@@ -435,7 +437,7 @@ def detect_faces(bgr_img):
     Returns a list of (x, y, w, h) bounding boxes.
     """
     h_img, w_img = bgr_img.shape[:2]
-    gray = cv2.equalizeHist(cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY))
+    gray = _CLAHE.apply(cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY))
     s_mask = skin_segmentation_mask(bgr_img)
 
     candidates = _mediapipe_face_candidates(bgr_img, s_mask)
@@ -700,7 +702,10 @@ def detect_landmarks(bgr_img, face_box):
     y2  = min(bgr_img.shape[0], y + fh + pad)
 
     roi_bgr  = bgr_img[y1:y2, x1:x2]
-    roi_gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+    # CLAHE (instead of plain equalizeHist) preserves local detail around the
+    # eye / nose region, giving more reliable edges for Hough and stronger
+    # responses for the eye-Haar cascades.
+    roi_gray = _CLAHE.apply(cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY))
     rh, rw   = roi_gray.shape
 
     # ── Eye detection: Hough circles (Lab 04) ────────────────────────────────
@@ -752,7 +757,44 @@ def detect_landmarks(bgr_img, face_box):
             elif left_eye_pt is None:
                 left_eye_pt  = eye_pts[0]
 
-    # ── Geometric fallback ────────────────────────────────────────────────────
+    # ── Integral-projection fallback ──────────────────────────────────────────
+    # Classic eye-localisation technique (Viola-Jones era): horizontal sum
+    # of pixel intensities across the upper face has reliable local minima
+    # at eye height (eyes are darker than skin).  Used to refine the y
+    # coordinate when both Hough and Haar failed, and to estimate x from
+    # the half-region centroid of pixels below a darkness threshold.
+    if right_eye_pt is None or left_eye_pt is None:
+        upper = roi_gray[:int(rh * 0.60), :]
+        mid_x = rw // 2
+        # Horizontal projection profile: mean intensity at each row.
+        # Find the darkest row in the band 20-80% from top of the upper region.
+        if upper.size > 0:
+            profile = upper.mean(axis=1)
+            band_lo, band_hi = int(len(profile) * 0.20), int(len(profile) * 0.80)
+            eye_row = band_lo + int(np.argmin(profile[band_lo:band_hi]))
+            # In each half, the darkest column near that row is a good eye x.
+            row_band = upper[max(0, eye_row - 5):eye_row + 6, :]
+            if row_band.size > 0:
+                col_means = row_band.mean(axis=0)
+                if right_eye_pt is None:
+                    rx = int(np.argmin(col_means[:mid_x]))
+                    right_eye_pt = (x1 + rx, y1 + eye_row)
+                if left_eye_pt is None:
+                    lx = mid_x + int(np.argmin(col_means[mid_x:]))
+                    left_eye_pt = (x1 + lx, y1 + eye_row)
+
+    # ── Symmetry fallback ─────────────────────────────────────────────────────
+    # If exactly one eye is still missing, mirror the found one through the
+    # face's vertical centre line.  Faces are bilaterally symmetric so this
+    # is more accurate than a fixed proportional estimate.
+    if right_eye_pt is None and left_eye_pt is not None:
+        cx = x + fw // 2
+        right_eye_pt = (2 * cx - left_eye_pt[0], left_eye_pt[1])
+    elif left_eye_pt is None and right_eye_pt is not None:
+        cx = x + fw // 2
+        left_eye_pt = (2 * cx - right_eye_pt[0], right_eye_pt[1])
+
+    # ── Geometric fallback (last resort) ──────────────────────────────────────
     geo_right = (x + int(fw * 0.33), y + int(fh * 0.38))
     geo_left  = (x + int(fw * 0.67), y + int(fh * 0.38))
     right_eye = right_eye_pt if right_eye_pt else geo_right
@@ -1010,7 +1052,8 @@ def compute_lbp_features(bgr_crop):
     """
     try:
         gray = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2GRAY)
-        gray = cv2.equalizeHist(gray)       # normalise illumination
+        gray = _CLAHE.apply(gray)           # CLAHE preserves local detail
+                                            # better than global equalizeHist
 
         grid = 7
         h, w = gray.shape
@@ -1032,32 +1075,6 @@ def compute_lbp_features(bgr_crop):
         feat = np.concatenate(hists)
         norm = np.linalg.norm(feat)
         return feat / norm if norm > 0 else feat
-    except Exception:
-        return None
-
-
-def _get_sface_embedding(bgr_crop):
-    """
-    Compute a 128-D L2-normalised face embedding using OpenCV's SFace model
-    (cv2.FaceRecognizerSF, available in base opencv-python via the objdetect
-    module — no additional pip install required).
-
-    SFace achieves 99.4% accuracy on LFW, matching dlib's 99.38%, making it
-    a high-quality drop-in fallback when face_recognition is unavailable.
-    The int8-quantised model (sface.onnx, 9.9 MB) is included in the repo.
-
-    Returns a float32 vector of length 128, or None if the model is missing.
-    """
-    global _sface_recognizer
-    if not os.path.exists(_SFACE_MODEL):
-        return None
-    try:
-        if _sface_recognizer is None:
-            _sface_recognizer = cv2.FaceRecognizerSF.create(_SFACE_MODEL, "")
-        face_112 = cv2.resize(bgr_crop, (112, 112))
-        emb = _sface_recognizer.feature(face_112).flatten().astype(np.float32)
-        norm = np.linalg.norm(emb)
-        return emb / norm if norm > 0 else emb
     except Exception:
         return None
 
@@ -1275,17 +1292,10 @@ class FaceGUI:
         try:
             import face_recognition  # noqa: F401
         except Exception:
-            if os.path.exists(_SFACE_MODEL):
-                warnings.append(
-                    "face-recognition not installed — using SFace fallback "
-                    "(sface.onnx, 99.4% LFW accuracy, same quality as dlib)."
-                )
-            else:
-                warnings.append(
-                    "face-recognition not installed AND sface.onnx missing — "
-                    "bulk clustering will use LBP (poor quality). "
-                    "Run: pip install dlib face-recognition"
-                )
+            warnings.append(
+                "face-recognition not installed — bulk clustering will use the "
+                "LBP fallback (less accurate). Run: pip install dlib face-recognition"
+            )
         if mp is None:
             warnings.append("mediapipe not installed — using Haar cascade fallback.")
         if warnings:
