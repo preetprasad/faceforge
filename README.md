@@ -7,7 +7,7 @@ A face detection and identity clustering pipeline with a tkinter GUI.
 Single-image mode shows detection, landmarks, and aligned thumbnails; bulk
 mode clusters faces across a folder into unique identities.
 
-**For methodology, results, iteration history, and citations see [`Report.pdf`](Report.pdf).**
+**For methodology, results, iteration history, and citations see [`Prasad_Report.pdf`](Prasad_Report.pdf).**
 This README covers only how to install and run the project.
 
 ---
@@ -66,7 +66,7 @@ Haar cascades (bundled inside `opencv-python`) — no manual download needed.
 ## Run
 
 ```bash
-python draft.py
+python Prasad_Script.py
 ```
 
 This opens the GUI. Two buttons:
@@ -102,11 +102,11 @@ written to `test_outputs/`.
 
 ```
 face-detection/
-├── draft.py                       # Pipeline + GUI
+├── Prasad_Script.py               # Pipeline + GUI
 ├── test_pipeline.py               # Optional test suite
 ├── requirements.txt
 ├── README.md                      # This file
-├── Report.pdf                     # Project report
+├── Prasad_Report.pdf              # Project report
 │
 ├── blaze_face_short_range.tflite  # MediaPipe BlazeFace short-range
 ├── blaze_face_full_range.tflite   # MediaPipe BlazeFace full-range

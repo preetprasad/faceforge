@@ -1,5 +1,5 @@
 """
-Pipeline performance test for draft.py.
+Pipeline performance test for Prasad_Script.py.
 
 Runs every image in sample_images/ through each pipeline stage independently
 and prints a structured report:
@@ -12,7 +12,7 @@ and prints a structured report:
 
 Annotated outputs and skin masks are written to test_outputs/ for visual
 inspection.  This script is optional — it is not required by the GUI;
-it exists so the numbers in Report.pdf can be reproduced.
+it exists so the numbers in Prasad_Report.pdf can be reproduced.
 
 Usage:
     python test_pipeline.py
@@ -25,9 +25,9 @@ import time
 import cv2
 import numpy as np
 
-# Make draft.py importable when this script is run from any working directory.
+# Make the submitted script importable when test_pipeline.py is run from any cwd.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from draft import (
+from Prasad_Script import (
     detect_faces,
     detect_landmarks,
     align_face,
@@ -79,7 +79,7 @@ def eye_separation_ratio(left_eye, right_eye, face_w):
     return sep / max(face_w, 1)
 
 
-# Spec target positions and BGR landmark colours (must match draft.py).
+# Spec target positions and BGR landmark colours (must match Prasad_Script.py).
 TARGET_RE = (40, 40)
 TARGET_LE = (85, 40)
 TARGET_NT = (63, 70)
@@ -169,7 +169,7 @@ def test_image(bgr, fname):
         face_info["nose_in_box"]      = point_in_box(nose_tip,  box)
         face_info["eye_sep_ratio"]    = eye_separation_ratio(left_eye, right_eye, fw)
 
-        # Alignment.  draft.align_face returns (clean, display).
+        # Alignment.  align_face returns (clean, display).
         # clean   — saved by bulk processing (no dots)
         # display — pasted into the corner thumbnails (with dots)
         t0 = time.perf_counter()
@@ -180,7 +180,7 @@ def test_image(bgr, fname):
             face_info["align_shape"] = clean.shape
 
             # ── Task 4a: landmark target residuals ──────────────────────────
-            # Recompute the affine M from the same three correspondences draft
+            # Recompute the affine M from the same three correspondences the script
             # uses, then transform each source landmark and measure distance
             # from the spec target.  With cv2.getAffineTransform this is 0 px.
             src = np.float32([right_eye, left_eye, nose_tip])
@@ -210,7 +210,7 @@ def test_image(bgr, fname):
     result["pipeline_output_ok"] = (output is not None and output.shape == bgr.shape)
 
     # ── Task 4b: 4-corner thumbnail placement ──────────────────────────────
-    # For each detected face (up to 4), draft pastes the 125×125 aligned
+    # For each detected face (up to 4), the pipeline pastes the 125×125 aligned
     # thumbnail into one of the corners.  The thumbnail carries the green
     # left-eye dot at canvas (85, 40), so we sample that pixel in each
     # corresponding output corner — if it is green, the thumbnail is there.
@@ -535,7 +535,7 @@ def print_report(all_results, bulk_result=None):
 
 def test_bulk_processing(sample_dir):
     """
-    Exercise draft.bulk_process_folder against every spec sub-requirement
+    Exercise bulk_process_folder against every spec sub-requirement
     for Task 5:
 
       5a   read images from one folder            (input = sample_dir)
@@ -548,7 +548,7 @@ def test_bulk_processing(sample_dir):
            wiped before each run                   (junk-file check)
     """
     import re as _re
-    from draft import bulk_process_folder
+    from Prasad_Script import bulk_process_folder
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(sample_dir)),
                            "Processed_Images")
