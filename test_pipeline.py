@@ -101,10 +101,10 @@ def test_image(bgr, fname):
     Returns (result_dict, annotated_output_image).
 
     Adds spec-strict checks on top of the basic stage report:
-      §5 — landmarks land at exact target positions after getAffineTransform
-      §6 — corner thumbnail has red/green/blue dots at the canonical positions
-      §7 — original-image landmarks are coloured red/green/blue
-      §8 — the 4 corners of the output contain the aligned-face thumbnails
+      Task 4a — landmarks land at exact target positions after getAffineTransform
+      Task 4c — corner thumbnail has red/green/blue dots at the canonical positions
+      Task 4c — original-image landmarks coloured red/green/blue (covered indirectly by Task 4b)
+      Task 4b — the 4 corners of the output contain the aligned-face thumbnails
     """
     result = {
         "file": fname,
@@ -117,7 +117,7 @@ def test_image(bgr, fname):
         # ── full pipeline ──
         "pipeline_time": 0.0,
         "pipeline_output_ok": False,
-        # ── §8 corner placement ──
+        # ── Task 4b corner placement ──
         "corner_thumbnails_ok": [],   # one bool per corner that should hold a thumbnail
     }
 
@@ -146,9 +146,9 @@ def test_image(bgr, fname):
             "t_align": 0.0,
             "align_ok": False,
             "align_shape": None,
-            # §5 — landmark target residuals after the affine fit
+            # Task 4a — landmark target residuals after the affine fit
             "max_target_residual": None,
-            # §6 — colour dots in the corner thumbnail
+            # Task 4c — colour dots in the corner thumbnail
             "thumb_re_red": False,
             "thumb_le_green": False,
             "thumb_nt_blue": False,
@@ -179,7 +179,7 @@ def test_image(bgr, fname):
             face_info["align_ok"]    = True
             face_info["align_shape"] = clean.shape
 
-            # ── §5: landmark target residuals ────────────────────────────────
+            # ── Task 4a: landmark target residuals ──────────────────────────
             # Recompute the affine M from the same three correspondences draft
             # uses, then transform each source landmark and measure distance
             # from the spec target.  With cv2.getAffineTransform this is 0 px.
@@ -195,7 +195,7 @@ def test_image(bgr, fname):
             face_info["max_target_residual"] = max(residuals)
 
         if display is not None:
-            # ── §6: corner-thumbnail colour dots ─────────────────────────────
+            # ── Task 4c: corner-thumbnail colour dots ───────────────────────
             # OpenCV indexes images [y, x], so target_y goes first.
             face_info["thumb_re_red"]   = colour_close(display[TARGET_RE[1], TARGET_RE[0]], BGR_RED)
             face_info["thumb_le_green"] = colour_close(display[TARGET_LE[1], TARGET_LE[0]], BGR_GREEN)
@@ -209,7 +209,7 @@ def test_image(bgr, fname):
     result["pipeline_time"]      = time.perf_counter() - t0
     result["pipeline_output_ok"] = (output is not None and output.shape == bgr.shape)
 
-    # ── §8: 4-corner thumbnail placement ──────────────────────────────────────
+    # ── Task 4b: 4-corner thumbnail placement ──────────────────────────────
     # For each detected face (up to 4), draft pastes the 125×125 aligned
     # thumbnail into one of the corners.  The thumbnail carries the green
     # left-eye dot at canvas (85, 40), so we sample that pixel in each
@@ -369,9 +369,9 @@ def print_report(all_results, bulk_result=None):
         print(f"\n  Alignment success          : {align_ok_count}/{total_faces}  ({100*align_ok_count/total_faces:.0f}%)")
         print(f"  Wrong output size          : {wrong_size}")
 
-    # ── §5 — Task 4 strict target positions (spec 4a) ────────────────────────
+    # ── Task 4a — strict landmark target positions ─────────────────────────
     print(f"\n{LINE}")
-    print("TASK 4 – LANDMARK TARGET POSITIONS  (§4a strict check)")
+    print("TASK 4a – LANDMARK TARGET POSITIONS")
     print(LINE)
     print(f"{'Image':<10} {'Face':>5} {'Max residual (px)':>20}")
     print("-" * 40)
@@ -393,9 +393,9 @@ def print_report(all_results, bulk_result=None):
         print(f"\n  Max residual across all faces : {max_residual_all:.3f} px")
         print(f"  Faces with sub-pixel residual : {exact_hits}/{total_faces}")
 
-    # ── §6 — Task 4 corner-thumbnail landmark colours (spec 4c) ──────────────
+    # ── Task 4c — corner-thumbnail landmark colours ────────────────────────
     print(f"\n{LINE}")
-    print("TASK 4 – CORNER THUMBNAIL LANDMARK COLOURS  (§4c)")
+    print("TASK 4c – CORNER THUMBNAIL LANDMARK COLOURS")
     print(LINE)
     print(f"{'Image':<10} {'Face':>5} {'RE=red':>8} {'LE=green':>10} {'NT=blue':>9}")
     print("-" * 50)
@@ -417,9 +417,9 @@ def print_report(all_results, bulk_result=None):
         print(f"  Left  eye dot green  : {le_green_ok}/{total_faces}")
         print(f"  Nose      dot blue   : {nt_blue_ok}/{total_faces}")
 
-    # ── §7 — Task 4 corner placement (spec 4b) ───────────────────────────────
+    # ── Task 4b — corner thumbnail placement ───────────────────────────────
     print(f"\n{LINE}")
-    print("TASK 4 – CORNER THUMBNAIL PLACEMENT  (§4b)")
+    print("TASK 4b – CORNER THUMBNAIL PLACEMENT")
     print(LINE)
     print(f"{'Image':<10} {'Expected':>9} {'Corners with thumbnail':>26}")
     print("-" * 50)
@@ -452,10 +452,10 @@ def print_report(all_results, bulk_result=None):
     print(f"\n  Avg pipeline time          : {sum(times)/len(times):.1f} ms")
     print(f"  Min / Max                  : {min(times):.1f} ms / {max(times):.1f} ms")
 
-    # ── §8 + §9 — Task 5 bulk processing ─────────────────────────────────────
+    # ── Task 5 — bulk processing (5a–e) ────────────────────────────────────
     if bulk_result is not None:
         print(f"\n{LINE}")
-        print("TASK 5 – BULK PROCESSING  (§5a–e)")
+        print("TASK 5 – BULK PROCESSING (5a–e)")
         print(LINE)
         b = bulk_result
         print(f"  Images processed              : {b['n_imgs']}")
@@ -475,7 +475,7 @@ def print_report(all_results, bulk_result=None):
         print(f"  Saved crops have no dots      : "
               f"{'Yes' if b['no_dots_in_saved'] else 'No'}")
         print(f"  Pre-existing files wiped      : "
-              f"{'Yes' if b['junk_wiped'] else 'No'}  (§5e)")
+              f"{'Yes' if b['junk_wiped'] else 'No'}  (5e)")
 
     # ── Overall verdict ───────────────────────────────────────────────────────
     print(f"\n{LINE}")
@@ -509,19 +509,19 @@ def print_report(all_results, bulk_result=None):
     if bulk_result is not None:
         b = bulk_result
         if not b["folder_created"]:
-            issues.append("  [CRITICAL] §5b — Processed_Images folder not created")
+            issues.append("  [CRITICAL] 5b — Processed_Images folder not created")
         if not b["naming_ok"]:
-            issues.append("  [CRITICAL] §5c — saved files do not match Identity_N_face_M.jpg")
+            issues.append("  [CRITICAL] 5c — saved files do not match Identity_N_face_M.jpg")
         if not b["size_ok"]:
-            issues.append("  [BUG]      §5c — at least one saved crop is not 125×125")
+            issues.append("  [BUG]      5c — at least one saved crop is not 125×125")
         if not b["no_dots_in_saved"]:
-            issues.append("  [BUG]      §5c — saved crops contain landmark dots "
+            issues.append("  [BUG]      5c — saved crops contain landmark dots "
                           "(should be clean)")
         if not b["junk_wiped"]:
-            issues.append("  [CRITICAL] §5e — pre-existing Processed_Images files "
+            issues.append("  [CRITICAL] 5e — pre-existing Processed_Images files "
                           "were not deleted before the new run")
         if b["n_saved"] != b["n_faces"]:
-            issues.append(f"  [BUG]      §5c — saved {b['n_saved']} files but "
+            issues.append(f"  [BUG]      5c — saved {b['n_saved']} files but "
                           f"reported {b['n_faces']} faces")
 
     if not issues:
@@ -531,20 +531,20 @@ def print_report(all_results, bulk_result=None):
     print()
 
 
-# ── §8 + §9 — Task 5 bulk processing test ────────────────────────────────────
+# ── Task 5 bulk processing test (5a–e) ─────────────────────────────────────
 
 def test_bulk_processing(sample_dir):
     """
     Exercise draft.bulk_process_folder against every spec sub-requirement
     for Task 5:
 
-      §5a  read images from one folder            (input = sample_dir)
-      §5b  output to a 'Processed_Images' folder
+      5a   read images from one folder            (input = sample_dir)
+      5b   output to a 'Processed_Images' folder
            at the same location as sample_dir     (parent dir)
-      §5c  cropped aligned 125x125, NO landmarks,
+      5c   cropped aligned 125x125, NO landmarks,
            filename 'Identity_N_face_M.jpg'
-      §5d  clustering returns the identity count  (n_identities)
-      §5e  existing files in Processed_Images are
+      5d   clustering returns the identity count  (n_identities)
+      5e   existing files in Processed_Images are
            wiped before each run                   (junk-file check)
     """
     import re as _re
@@ -553,13 +553,13 @@ def test_bulk_processing(sample_dir):
     out_dir = os.path.join(os.path.dirname(os.path.abspath(sample_dir)),
                            "Processed_Images")
 
-    # §5e setup: pre-populate Processed_Images with a junk file that should
+    # Task 5e setup: pre-populate Processed_Images with a junk file that should
     # be removed by bulk_process_folder before saving anything new.
     os.makedirs(out_dir, exist_ok=True)
     junk_path = os.path.join(out_dir, "JUNK_SHOULD_BE_DELETED.txt")
     with open(junk_path, "w") as fh:
         fh.write("if this file still exists after bulk_process_folder runs, "
-                 "the wipe-on-each-run requirement (§5e) is broken.")
+                 "the wipe-on-each-run requirement (5e) is broken.")
 
     # Run Task 5.
     n_imgs, n_faces, n_identities, elapsed = bulk_process_folder(sample_dir)
@@ -581,7 +581,7 @@ def test_bulk_processing(sample_dir):
         if img is None or img.shape != (125, 125, 3):
             size_ok = False
             continue
-        # §5c: saved crops must NOT have landmark dots.  If the red/green/blue
+        # Task 5c: saved crops must NOT have landmark dots.  If the red/green/blue
         # target pixels match the landmark BGR colours, the saved crop is the
         # 'display' image not the 'clean' one — that's a violation.
         re_pix = img[TARGET_RE[1], TARGET_RE[0]]
