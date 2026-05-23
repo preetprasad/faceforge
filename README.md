@@ -89,7 +89,7 @@ This opens the GUI. Two buttons:
 ## Run the test suite (optional)
 
 ```bash
-python test_baseline.py
+python test_pipeline.py
 ```
 
 Per-image and per-face report of detection counts, landmark-in-box checks,
@@ -103,7 +103,7 @@ written to `test_outputs/`.
 ```
 face-detection/
 ├── draft.py                       # Pipeline + GUI (the submitted script)
-├── test_baseline.py               # Optional test suite
+├── test_pipeline.py               # Optional test suite
 ├── requirements.txt
 ├── README.md                      # This file
 │
