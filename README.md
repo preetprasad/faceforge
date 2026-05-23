@@ -7,7 +7,7 @@ A face detection and identity clustering pipeline with a tkinter GUI.
 Single-image mode shows detection, landmarks, and aligned thumbnails; bulk
 mode clusters faces across a folder into unique identities.
 
-**For methodology, results, iteration history, and citations see [`Report.pdf`](Report.pdf).**
+**For methodology, results, iteration history, and citations see [`report/Report.pdf`](report/Report.pdf).**
 This README covers only how to install and run the project.
 
 ---
@@ -107,12 +107,13 @@ face-detection/
 ├── requirements.txt
 ├── README.md                      # This file
 │
-├── main.tex                       # Report — LaTeX entry point
-├── titlepage.tex                  # Report — title page
-├── report.tex                     # Report — body sections (3 pages)
-├── refs.bib                       # Report — bibliography (12 entries)
-├── src/uwa_logo.png               # Report — UWA crest
-├── Report.pdf                     # Compiled report
+├── report/                        # LaTeX source for the report
+│   ├── main.tex                   #   — entry point (preamble + \input)
+│   ├── titlepage.tex              #   — title page (UWA crest + name)
+│   ├── report.tex                 #   — body sections (3 pages)
+│   ├── refs.bib                   #   — bibliography (12 entries)
+│   ├── src/uwa_logo.png           #   — UWA crest image
+│   └── Report.pdf                 #   — compiled report (submit this)
 │
 ├── blaze_face_short_range.tflite  # MediaPipe model
 ├── blaze_face_full_range.tflite   # MediaPipe model
@@ -129,11 +130,12 @@ face-detection/
 The report sources are in this repo so the marker (or future you) can edit
 and recompile if needed. Two options:
 
-1. **Overleaf:** new blank project → upload `main.tex`, `titlepage.tex`,
-   `report.tex`, `refs.bib`, and the `src/` folder → set `main.tex` as the
-   main document → Recompile.
+1. **Overleaf:** new blank project → upload the contents of the `report/`
+   folder (`main.tex`, `titlepage.tex`, `report.tex`, `refs.bib`, and the
+   `src/` subfolder) → set `main.tex` as the main document → Recompile.
 2. **Local TeX install:**
    ```bash
+   cd report
    pdflatex main.tex && bibtex main && pdflatex main.tex && pdflatex main.tex
    ```
 
