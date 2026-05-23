@@ -7,7 +7,7 @@ A face detection and identity clustering pipeline with a tkinter GUI.
 Single-image mode shows detection, landmarks, and aligned thumbnails; bulk
 mode clusters faces across a folder into unique identities.
 
-**For methodology, results, iteration history, and citations see [`report/Report.pdf`](report/Report.pdf).**
+**For methodology, results, iteration history, and citations see [`Report.pdf`](Report.pdf).**
 This README covers only how to install and run the project.
 
 ---
@@ -98,46 +98,23 @@ written to `test_outputs/`.
 
 ---
 
-## Project structure
+## Submission contents
 
 ```
 face-detection/
-├── draft.py                       # Pipeline + GUI (the submitted script)
+├── draft.py                       # Pipeline + GUI
 ├── test_pipeline.py               # Optional test suite
 ├── requirements.txt
 ├── README.md                      # This file
+├── Report.pdf                     # Project report
 │
-├── report/                        # LaTeX source for the report
-│   ├── main.tex                   #   — entry point (preamble + \input)
-│   ├── titlepage.tex              #   — title page (UWA crest + name)
-│   ├── report.tex                 #   — body sections (3 pages)
-│   ├── refs.bib                   #   — bibliography (12 entries)
-│   ├── src/uwa_logo.png           #   — UWA crest image
-│   └── Report.pdf                 #   — compiled report (submit this)
-│
-├── blaze_face_short_range.tflite  # MediaPipe model
-├── blaze_face_full_range.tflite   # MediaPipe model
-├── face_landmarker.task           # MediaPipe model
+├── blaze_face_short_range.tflite  # MediaPipe BlazeFace short-range
+├── blaze_face_full_range.tflite   # MediaPipe BlazeFace full-range
+├── face_landmarker.task           # MediaPipe FaceLandmarker
 │
 ├── sample_images/                 # 12 provided test images (1.jpg–12.jpg)
 └── Processed_Images/              # Created automatically by bulk processing
 ```
-
----
-
-## Editing / recompiling the report
-
-The report sources are in this repo so the marker (or future you) can edit
-and recompile if needed. Two options:
-
-1. **Overleaf:** new blank project → upload the contents of the `report/`
-   folder (`main.tex`, `titlepage.tex`, `report.tex`, `refs.bib`, and the
-   `src/` subfolder) → set `main.tex` as the main document → Recompile.
-2. **Local TeX install:**
-   ```bash
-   cd report
-   pdflatex main.tex && bibtex main && pdflatex main.tex && pdflatex main.tex
-   ```
 
 ---
 
