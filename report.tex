@@ -2,12 +2,20 @@
 % CITS4402 Computer Vision Project Report — Face Detection and Matching
 % Preet Prasad — 23857493
 %
-% Compiles on Overleaf with pdfLaTeX (default).  No bibliography, no external
-% images, no custom fonts — drops into a blank Overleaf project as-is.
+% Compiles on Overleaf with pdfLaTeX (default).  Requires refs.bib in the
+% same project for the bibliography step.  No external images, no custom
+% fonts — drops into a blank Overleaf project as-is.
+%
+% Build order on a local TeX install:
+%   pdflatex report.tex
+%   bibtex   report
+%   pdflatex report.tex
+%   pdflatex report.tex
+% Overleaf runs this automatically.
 % =============================================================================
-\documentclass[11pt,a4paper]{article}
+\documentclass[11pt,a4paper,titlepage]{article}
 
-\usepackage[a4paper,top=1.5cm,bottom=1.5cm,left=1.8cm,right=1.8cm]{geometry}
+\usepackage[a4paper,top=1.8cm,bottom=1.8cm,left=2.0cm,right=2.0cm]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{helvet}            % Arial-equivalent (Helvetica) sans-serif
@@ -20,11 +28,13 @@
 \usepackage{ragged2e}
 \usepackage{xcolor}
 \usepackage{amsmath}
+\usepackage[numbers,sort&compress]{natbib}
 \usepackage[hyphens]{url}
 \usepackage{hyperref}
-\hypersetup{colorlinks=true,urlcolor=blue,linkcolor=black}
+\hypersetup{colorlinks=true,urlcolor=blue,linkcolor=black,citecolor=black}
 
-% Tighten section spacing so the whole report fits inside 3 pages.
+% Tighten section spacing so the body fits inside 3 pages (title page and
+% references do not count toward the 3-page limit per the unit announcement).
 \titlespacing*{\section}{0pt}{4pt}{1pt}
 \titlespacing*{\subsection}{0pt}{3pt}{0pt}
 \titleformat{\section}{\normalfont\bfseries\fontsize{12pt}{13pt}\selectfont}{\thesection.}{0.5em}{}
@@ -43,26 +53,38 @@
 
 \begin{document}
 
-% ── Title block ──────────────────────────────────────────────────────────────
-\begin{center}
-  {\fontsize{13pt}{15pt}\bfseries\selectfont CITS4402 Computer Vision Project Report}\\[2pt]
-  {\fontsize{12pt}{14pt}\bfseries\selectfont Face Detection and Matching}\\[2pt]
-  {\fontsize{11pt}{13pt}\selectfont Preet Prasad --- 23857493}
-\end{center}
-\vspace{2pt}
+% ── Title page (does not count toward the 3-page limit) ──────────────────────
+\begin{titlepage}
+  \centering
+  \vspace*{4cm}
+  {\fontsize{18pt}{22pt}\bfseries\selectfont CITS4402 Computer Vision\par}
+  \vspace{6pt}
+  {\fontsize{16pt}{20pt}\bfseries\selectfont Project Report\par}
+  \vspace{20pt}
+  {\fontsize{14pt}{18pt}\bfseries\selectfont Face Detection and Matching\par}
+  \vfill
+  {\fontsize{13pt}{16pt}\selectfont Preet Prasad\par}
+  \vspace{4pt}
+  {\fontsize{13pt}{16pt}\selectfont Student Number: 23857493\par}
+  \vspace*{4cm}
+\end{titlepage}
 
+% ── Body starts here — page 1 of the 3-page content budget ──────────────────
 % ── 1. Introduction ──────────────────────────────────────────────────────────
 \section{Introduction}
 This report describes the face detection and identity clustering system implemented
 for the CITS4402 project. The system processes 640$\times$480 colour images (1--4 faces),
 detects faces, localises three landmarks (right eye, left eye, nose tip), aligns
 each face to a 125$\times$125 crop, and clusters faces across a folder into unique
-identities. The pipeline uses MediaPipe BlazeFace and FaceLandmarker when available,
-with a fully self-contained fallback built on OpenCV Haar cascades and the Hough
-circle transform (Lab~04). For clustering, 128-D dlib ResNet embeddings (via the
-\texttt{face\_recognition} library) feed DBSCAN. The table below shows the headline
-measured outcomes from the naive starting point to the final implementation;
-subsequent sections detail each task's development.
+identities. The pipeline uses MediaPipe BlazeFace~\citep{bazarevsky2019blazeface}
+and FaceLandmarker~\citep{lugaresi2019mediapipe} when available, with a
+fully self-contained fallback built on OpenCV~\citep{bradski2000opencv} Haar
+cascades~\citep{viola2001rapid} and the Hough circle transform~\citep{yuen1990hough}
+covered in Lab~04. For clustering, 128-D dlib ResNet embeddings~\citep{king2009dlib}
+(via the \texttt{face\_recognition} library) feed DBSCAN~\citep{ester1996density}.
+The table below shows the headline measured outcomes from the naive starting
+point to the final implementation; subsequent sections detail each task's
+development.
 
 \subsection{Baseline vs Final (measured on the 12 sample images)}
 \noindent
@@ -87,10 +109,11 @@ Identity clustering    & not implemented               & eps=0.38, 6 clusters fr
 \toprule
 \textbf{Version} & \textbf{Change} & \textbf{Outcome} \\
 \midrule
-v1 (baseline) & Haar cascade (\texttt{frontalface\_default}) only, no skin filter
+v1 (baseline) & Haar cascade~\citep{viola2001rapid} (\texttt{frontalface\_default}) only,
+                no skin filter
               & 11/12 images; 4.jpg missed entirely \\
-v2 & Added MediaPipe BlazeFace (short-range + full-range) as primary detector;
-     Haar retained as fallback
+v2 & Added MediaPipe BlazeFace~\citep{bazarevsky2019blazeface} (short-range +
+     full-range) as primary detector; Haar retained as fallback
    & 12/12 images, but false positives: 5 boxes on 11.jpg (small body region),
      1 face missed on 12.jpg (Ross failed cascade re-verification) \\
 v3 & Added skin-coverage bypass for verification (skin $\geq$ 75\% AND box $\geq$ 60 px);
@@ -99,19 +122,21 @@ v3 & Added skin-coverage bypass for verification (skin $\geq$ 75\% AND box $\geq
 v4 & Replaced YCrCb-only skin filter with three-rule majority vote
      (YCrCb + HSV wrap-around + normalised-RGB)
    & More tolerant of unusual lighting/darker skin without losing FP rejection \\
-v5 (final) & CLAHE replaces \texttt{equalizeHist} for the Haar-fallback grayscale input
+v5 (final) & CLAHE~\citep{zuiderveld1994clahe} replaces \texttt{equalizeHist}
+             for the Haar-fallback grayscale input
            & 12/12 maintained; better local detail for the Haar fallback path \\
 \bottomrule
 \end{tabularx}
 
 \subsection{Final Method}
-Primary: MediaPipe BlazeFace short-range (230~KB) + full-range (1.1~MB) TFLite
-models, run on the original and horizontally-flipped image. Results merged with
-IoU-NMS (threshold 0.28, containment $>$ 72\%). Each box expanded 20\% up,
-10\% left/right, 15\% down to capture the full head. Capped at 4 by ranking on
-confidence + skin-coverage score. Fallback when MediaPipe is unavailable:
-\texttt{frontalface\_default} + \texttt{alt2} Haar cascades, 28\% upward expansion,
-ROI re-verification, profile cascade as last resort.
+Primary: MediaPipe BlazeFace~\citep{bazarevsky2019blazeface} short-range (230~KB)
++ full-range (1.1~MB) TFLite models, run on the original and horizontally-flipped
+image. Results merged with IoU-NMS (threshold 0.28, containment $>$ 72\%). Each
+box expanded 20\% up, 10\% left/right, 15\% down to capture the full head. Capped
+at 4 by ranking on confidence + skin-coverage score. Fallback when MediaPipe is
+unavailable: \texttt{frontalface\_default} + \texttt{alt2} Haar
+cascades~\citep{viola2001rapid}, 28\% upward expansion, ROI re-verification,
+profile cascade as last resort.
 
 \subsection{Skin-Colour Segmentation (Mandatory)}
 Three-rule majority vote (Lab~05 technique): a pixel is skin when $\geq 2$ of
@@ -135,14 +160,15 @@ open + close (5$\times$5 ellipse) before the 20\% pixel-ratio threshold.
 \toprule
 \textbf{Version} & \textbf{Change} & \textbf{Outcome} \\
 \midrule
-v1 (baseline) & \texttt{haarcascade\_eye.xml} only
+v1 (baseline) & \texttt{haarcascade\_eye.xml}~\citep{viola2001rapid} only
               & 61\% both-eyes (17/28); fails on tilted, glasses, occluded faces \\
-v2 & Hough circle transform with Lab~04 edge-overlap scoring on upper 58\% ROI;
-     \texttt{eye\_tree\_eyeglasses} and directional eye cascades as chained
-     fallbacks; nose tip via intensity minimum of Gaussian-blurred patch
+v2 & Hough circle transform~\citep{yuen1990hough} with Lab~04 edge-overlap
+     scoring on upper 58\% ROI; \texttt{eye\_tree\_eyeglasses} and directional
+     eye cascades as chained fallbacks; nose tip via intensity minimum of
+     Gaussian-blurred patch
    & 100\% both-eyes on all 26 faces \\
-v3 & Added MediaPipe FaceLandmarker (iris landmarks 468/473, nose landmark 1)
-     as primary path
+v3 & Added MediaPipe FaceLandmarker~\citep{lugaresi2019mediapipe} (iris
+     landmarks 468/473, nose landmark 1) as primary path
    & 100\% maintained; sub-pixel iris precision \\
 v4 & Per-eye position validation: reject MediaPipe landmarks where any single
      eye is outside the top 8--60\% of the face box, or eyes differ in y by
@@ -150,7 +176,7 @@ v4 & Per-eye position validation: reject MediaPipe landmarks where any single
    & Caught a Chandler-in-7.jpg case where MediaPipe placed the right eye on
      the forehead, causing a badly tilted alignment \\
 v5 (final) & Integral-projection profile + symmetry-mirror fallback tiers;
-             CLAHE preprocessing
+             CLAHE~\citep{zuiderveld1994clahe} preprocessing
            & 100\% even with MediaPipe disabled (verified by forcing the
              landmarker off) \\
 \bottomrule
@@ -197,7 +223,8 @@ v4 & Least-squares similarity transform over all three landmarks (closed form
      via \texttt{np.linalg.lstsq} on the 6-equation 4-unknown system)
    & 100\%; reduced tilt vs LMEDS but still measured max 9.5~px residual
      because a 4-DOF model cannot exactly fit 3 arbitrary point pairs \\
-v5 (final) & \texttt{cv2.getAffineTransform} with all three landmarks
+v5 (final) & \texttt{cv2.getAffineTransform}~\citep{bradski2000opencv} with all
+             three landmarks
            & 100\%; verified 0~px residual on all 26 faces --- every landmark
              lands precisely at its target coordinate \\
 \bottomrule
@@ -224,17 +251,21 @@ between images.
 \textbf{Version} & \textbf{Change} & \textbf{Outcome} \\
 \midrule
 v1 (baseline) & Not implemented in the baseline code & --- \\
-v2 & 128-D dlib ResNet embeddings via \texttt{face\_recognition} (explicitly
-     permitted by spec); DBSCAN with \texttt{min\_samples=1} and Euclidean distance
+v2 & 128-D dlib ResNet embeddings~\citep{king2009dlib} via \texttt{face\_recognition}
+     (explicitly permitted by spec); DBSCAN~\citep{ester1996density} via
+     scikit-learn~\citep{pedregosa2011scikit} with \texttt{min\_samples=1} and
+     Euclidean distance
    & Clusters identities meaningfully; see eps sweep below \\
 v3 & Singleton-merge post-processing: merge isolated one-face clusters into
      the nearest compatible cluster if distance $<$ 0.515 AND no shared
      source image
    & Repairs cases where one image of a person has unusual pose/lighting \\
 v4 & Upgraded the LBP fallback descriptor from basic 256-bin 5$\times$5 to
-     LBP-u2 7$\times$7 multi-scale (Ahonen et al.\ 2006): 59 uniform-pattern
-     bins $\times$ 49 cells $\times$ 2 radii = 5782-D L2-normalised
-   & LBP fallback peak silhouette: 0.04 $\to$ 0.11 ($\approx 3\times$ improvement) \\
+     LBP-u2~\citep{ojala2002multiresolution} 7$\times$7 multi-scale
+     following \citet{ahonen2006face}: 59 uniform-pattern bins
+     $\times$ 49 cells $\times$ 2 radii = 5782-D L2-normalised
+   & LBP fallback peak silhouette~\citep{rousseeuw1987silhouettes}:
+     0.04 $\to$ 0.11 ($\approx 3\times$ improvement) \\
 \bottomrule
 \end{tabularx}
 
@@ -242,7 +273,7 @@ v4 & Upgraded the LBP fallback descriptor from basic 256-bin 5$\times$5 to
 \noindent
 \begin{tabular}{@{}lll@{}}
 \toprule
-\textbf{eps} & \textbf{Clusters} & \textbf{Silhouette} \\
+\textbf{eps} & \textbf{Clusters} & \textbf{Silhouette}~\citep{rousseeuw1987silhouettes} \\
 \midrule
 0.35           & 10 & 0.1408 \\
 \textbf{0.38}  & \textbf{6}  & \textbf{0.1021 $\leftarrow$ selected} \\
@@ -289,5 +320,10 @@ ground truth):
 --- the LBP-u2 fallback works without it but with reduced discrimination.
 (3) eps=0.38 over-splits one identity (6 clusters from 5 characters); eps=0.40
 merges two distinct characters, so 6 is the better error.
+
+% ── References (does not count toward the 3-page limit) ──────────────────────
+\renewcommand{\bibsection}{\section*{References}}
+\bibliographystyle{plainnat}
+{\small\bibliography{refs}}
 
 \end{document}
