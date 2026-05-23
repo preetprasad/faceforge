@@ -2,16 +2,19 @@
 % CITS4402 Computer Vision Project Report — Face Detection and Matching
 % Preet Prasad — 23857493
 %
-% Compiles on Overleaf with pdfLaTeX (default).  Requires refs.bib in the
-% same project for the bibliography step.  No external images, no custom
-% fonts — drops into a blank Overleaf project as-is.
+% Project layout:
+%   main.tex       — this file: preamble + \input directives + bibliography
+%   titlepage.tex  — title page (UWA crest + course + name + student number)
+%   report.tex     — body sections 1–6 (counts toward 3-page limit)
+%   refs.bib       — 12-entry bibliography database
+%   src/           — images (uwa_logo.png)
 %
 % Build order on a local TeX install:
-%   pdflatex report.tex
-%   bibtex   report
-%   pdflatex report.tex
-%   pdflatex report.tex
-% Overleaf runs this automatically.
+%   pdflatex main.tex
+%   bibtex   main
+%   pdflatex main.tex
+%   pdflatex main.tex
+% Overleaf runs this automatically — just set main.tex as the main document.
 % =============================================================================
 \documentclass[11pt,a4paper,titlepage]{article}
 
@@ -21,6 +24,7 @@
 \usepackage{helvet}            % Arial-equivalent (Helvetica) sans-serif
 \renewcommand{\familydefault}{\sfdefault}
 \usepackage{graphicx}
+\graphicspath{{src/}}          % images live in src/ — keep .tex files clean
 \usepackage{titlesec}
 \usepackage{enumitem}
 \usepackage{tabularx}
@@ -57,257 +61,8 @@
 % Title page (separate file, does not count toward 3-page limit)
 \input{titlepage}
 
-% ── Body starts here — page 1 of the 3-page content budget ──────────────────
-% ── 1. Introduction ──────────────────────────────────────────────────────────
-\section{Introduction}
-This report describes the face detection and identity clustering system implemented
-for the CITS4402 project. The system processes 640$\times$480 colour images (1--4 faces),
-detects faces, localises three landmarks (right eye, left eye, nose tip), aligns
-each face to a 125$\times$125 crop, and clusters faces across a folder into unique
-identities. The pipeline uses MediaPipe BlazeFace~\citep{bazarevsky2019blazeface}
-and FaceLandmarker~\citep{lugaresi2019mediapipe} when available, with a
-fully self-contained fallback built on OpenCV~\citep{bradski2000opencv} Haar
-cascades~\citep{viola2001rapid} and the Hough circle transform~\citep{yuen1990hough}
-covered in Lab~04. For clustering, 128-D dlib ResNet embeddings~\citep{king2009dlib}
-(via the \texttt{face\_recognition} library) feed DBSCAN~\citep{ester1996density}.
-The table below shows the headline measured outcomes from the naive starting
-point to the final implementation; subsequent sections detail each task's
-development.
-
-\subsection{Baseline vs Final (measured on the 12 sample images)}
-\noindent
-\begin{tabularx}{\linewidth}{@{}p{0.22\linewidth} p{0.32\linewidth} X@{}}
-\toprule
-\textbf{Metric} & \textbf{Naive baseline} & \textbf{Final implementation} \\
-\midrule
-Face detection         & 11/12 images (4.jpg missed)   & 12/12 images, all counts correct \\
-Landmark detection     & 61\% both-eyes (17/28 faces)  & 100\% both-eyes (26/26 faces) \\
-Landmarks inside box   & not measured                  & 100\% RE, 100\% LE, 100\% nose \\
-Alignment success      & 61\%, no similarity transform & 100\%, exact targets (0 px residual) \\
-Identity clustering    & not implemented               & eps=0.38, 6 clusters from 26 faces \\
-\bottomrule
-\end{tabularx}
-
-% ── 2. Face Detection ────────────────────────────────────────────────────────
-\section{Face Detection (Task 2)}
-
-\subsection{Development Iterations}
-\noindent
-\begin{tabularx}{\linewidth}{@{}V C O@{}}
-\toprule
-\textbf{Version} & \textbf{Change} & \textbf{Outcome} \\
-\midrule
-v1 (baseline) & Haar cascade~\citep{viola2001rapid} (\texttt{frontalface\_default}) only,
-                no skin filter
-              & 11/12 images; 4.jpg missed entirely \\
-v2 & Added MediaPipe BlazeFace~\citep{bazarevsky2019blazeface} (short-range +
-     full-range) as primary detector; Haar retained as fallback
-   & 12/12 images, but false positives: 5 boxes on 11.jpg (small body region),
-     1 face missed on 12.jpg (Ross failed cascade re-verification) \\
-v3 & Added skin-coverage bypass for verification (skin $\geq$ 75\% AND box $\geq$ 60 px);
-     cap result at 4 (spec maximum)
-   & Fixed 12.jpg (Ross retained) and 11.jpg (small body box dropped); 12/12 correct \\
-v4 & Replaced YCrCb-only skin filter with three-rule majority vote
-     (YCrCb + HSV wrap-around + normalised-RGB)
-   & More tolerant of unusual lighting/darker skin without losing FP rejection \\
-v5 (final) & CLAHE~\citep{zuiderveld1994clahe} replaces \texttt{equalizeHist}
-             for the Haar-fallback grayscale input
-           & 12/12 maintained; better local detail for the Haar fallback path \\
-\bottomrule
-\end{tabularx}
-
-\subsection{Final Method}
-Primary: MediaPipe BlazeFace~\citep{bazarevsky2019blazeface} short-range (230~KB)
-+ full-range (1.1~MB) TFLite models, run on the original and horizontally-flipped
-image. Results merged with IoU-NMS (threshold 0.28, containment $>$ 72\%). Each
-box expanded 20\% up, 10\% left/right, 15\% down to capture the full head. Capped
-at 4 by ranking on confidence + skin-coverage score. Fallback when MediaPipe is
-unavailable: \texttt{frontalface\_default} + \texttt{alt2} Haar
-cascades~\citep{viola2001rapid}, 28\% upward expansion, ROI re-verification,
-profile cascade as last resort.
-
-\subsection{Skin-Colour Segmentation (Mandatory)}
-Three-rule majority vote (Lab~05 technique): a pixel is skin when $\geq 2$ of
-three rules agree --- YCrCb ($\text{Cr} \in [133, 183]$, $\text{Cb} \in [75, 135]$),
-HSV ($\text{H} \in [0,28] \cup [160,179]$), normalised RGB
-($\text{R} > \text{G}-5$, $\text{R} > \text{B}$, $\text{R} > 70$). Morphological
-open + close (5$\times$5 ellipse) before the 20\% pixel-ratio threshold.
-
-\subsection{Alternatives Considered}
-\begin{itemize}
-  \item dlib HOG face detector: lower recall on non-frontal faces vs BlazeFace.
-  \item OpenCV YuNet: needs a separate ONNX file not bundled with \texttt{opencv-python}.
-\end{itemize}
-
-% ── 3. Landmark Detection ────────────────────────────────────────────────────
-\section{Facial Landmark Detection (Task 3)}
-
-\subsection{Development Iterations}
-\noindent
-\begin{tabularx}{\linewidth}{@{}V C O@{}}
-\toprule
-\textbf{Version} & \textbf{Change} & \textbf{Outcome} \\
-\midrule
-v1 (baseline) & \texttt{haarcascade\_eye.xml}~\citep{viola2001rapid} only
-              & 61\% both-eyes (17/28); fails on tilted, glasses, occluded faces \\
-v2 & Hough circle transform~\citep{yuen1990hough} with Lab~04 edge-overlap
-     scoring on upper 58\% ROI; \texttt{eye\_tree\_eyeglasses} and directional
-     eye cascades as chained fallbacks; nose tip via intensity minimum of
-     Gaussian-blurred patch
-   & 100\% both-eyes on all 26 faces \\
-v3 & Added MediaPipe FaceLandmarker~\citep{lugaresi2019mediapipe} (iris
-     landmarks 468/473, nose landmark 1) as primary path
-   & 100\% maintained; sub-pixel iris precision \\
-v4 & Per-eye position validation: reject MediaPipe landmarks where any single
-     eye is outside the top 8--60\% of the face box, or eyes differ in y by
-     $>$ 20\% face height
-   & Caught a Chandler-in-7.jpg case where MediaPipe placed the right eye on
-     the forehead, causing a badly tilted alignment \\
-v5 (final) & Integral-projection profile + symmetry-mirror fallback tiers;
-             CLAHE~\citep{zuiderveld1994clahe} preprocessing
-           & 100\% even with MediaPipe disabled (verified by forcing the
-             landmarker off) \\
-\bottomrule
-\end{tabularx}
-
-\subsection{Final Method}
-Seven-tier fallback chain (each tier only runs if the previous failed):
-(1) MediaPipe FaceLandmarker on a padded ROI;
-(2) Hough circles with Lab~04 edge-overlap scoring;
-(3) \texttt{haarcascade\_eye\_tree\_eyeglasses};
-(4) directional eye cascades;
-(5) integral-projection profile (darkest row in the upper face);
-(6) symmetry mirror if one eye is found;
-(7) proportional geometric estimate.
-Nose tip always from intensity minimum in the central 30--70\% $\times$ 50--72\%
-region of the face ROI.
-
-\subsection{Alternatives Considered}
-\begin{itemize}
-  \item dlib 68-point shape predictor: 68~MB model file, too large for submission.
-\end{itemize}
-
-% ── 4. Alignment ─────────────────────────────────────────────────────────────
-\section{Facial Alignment (Task 4)}
-
-\subsection{Development Iterations}
-\noindent
-\begin{tabularx}{\linewidth}{@{}V C O@{}}
-\toprule
-\textbf{Version} & \textbf{Change} & \textbf{Outcome} \\
-\midrule
-v1 (baseline) & \texttt{getRotationMatrix2D} for rotation, then separate crop
-                + resize. Does not use a similarity transform; landmarks not
-                at target positions
-              & 61\% success (tied to landmark failures) \\
-v2 & \texttt{cv2.estimateAffinePartial2D} with LMEDS on all three landmarks
-   & 100\% success but visible tilt artefact when nose constraint is geometrically
-     inconsistent with eyes (e.g., Monica in 7.jpg, eyes both at y=133 but face
-     aligned with $\sim$20$^{\circ}$ rotation) \\
-v3 & Analytical 2-point similarity transform from the two eye points only
-   & 100\%, no tilt; eyes exact at (40,40) and (85,40); but nose drifted from
-     (63,70) --- flagged by the lab facilitator \\
-v4 & Least-squares similarity transform over all three landmarks (closed form
-     via \texttt{np.linalg.lstsq} on the 6-equation 4-unknown system)
-   & 100\%; reduced tilt vs LMEDS but still measured max 9.5~px residual
-     because a 4-DOF model cannot exactly fit 3 arbitrary point pairs \\
-v5 (final) & \texttt{cv2.getAffineTransform}~\citep{bradski2000opencv} with all
-             three landmarks
-           & 100\%; verified 0~px residual on all 26 faces --- every landmark
-             lands precisely at its target coordinate \\
-\bottomrule
-\end{tabularx}
-
-\subsection{Final Method}
-\texttt{cv2.getAffineTransform} takes exactly 3 source$\rightarrow$target pairs
-and returns the unique 6-DOF affine matrix that maps them exactly. A single
-\texttt{cv2.warpAffine} call with output size (125, 125) simultaneously aligns,
-crops, resizes, and (where needed) lightly stretches the face so that
-$\text{right\_eye} \to (40, 40)$, $\text{left\_eye} \to (85, 40)$, and
-$\text{nose\_tip} \to (63, 70)$ are all exact. \texttt{borderMode=BORDER\_REPLICATE}
-fills out-of-bounds pixels, preventing black borders. Landmark dots on the
-corner thumbnail are drawn at the fixed target coordinates and never move
-between images.
-
-% ── 5. Identity Clustering ───────────────────────────────────────────────────
-\section{Identity Clustering (Task 5)}
-
-\subsection{Development Iterations}
-\noindent
-\begin{tabularx}{\linewidth}{@{}V C O@{}}
-\toprule
-\textbf{Version} & \textbf{Change} & \textbf{Outcome} \\
-\midrule
-v1 (baseline) & Not implemented in the baseline code & --- \\
-v2 & 128-D dlib ResNet embeddings~\citep{king2009dlib} via \texttt{face\_recognition}
-     (explicitly permitted by spec); DBSCAN~\citep{ester1996density} via
-     scikit-learn~\citep{pedregosa2011scikit} with \texttt{min\_samples=1} and
-     Euclidean distance
-   & Clusters identities meaningfully; see eps sweep below \\
-v3 & Singleton-merge post-processing: merge isolated one-face clusters into
-     the nearest compatible cluster if distance $<$ 0.515 AND no shared
-     source image
-   & Repairs cases where one image of a person has unusual pose/lighting \\
-v4 & Upgraded the LBP fallback descriptor from basic 256-bin 5$\times$5 to
-     LBP-u2~\citep{ojala2002multiresolution} 7$\times$7 multi-scale
-     following \citet{ahonen2006face}: 59 uniform-pattern bins
-     $\times$ 49 cells $\times$ 2 radii = 5782-D L2-normalised
-   & LBP fallback peak silhouette~\citep{rousseeuw1987silhouettes}:
-     0.04 $\to$ 0.11 ($\approx 3\times$ improvement) \\
-\bottomrule
-\end{tabularx}
-
-\subsection{DBSCAN eps Sweep (final code, 26 faces)}
-\noindent
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{eps} & \textbf{Clusters} & \textbf{Silhouette}~\citep{rousseeuw1987silhouettes} \\
-\midrule
-0.35           & 10 & 0.1408 \\
-\textbf{0.38}  & \textbf{6}  & \textbf{0.1021 $\leftarrow$ selected} \\
-0.40           & 4  & 0.0954 \\
-0.43           & 1  & 0.0000 \\
-0.45           & 1  & 0.0000 \\
-\bottomrule
-\end{tabular}
-
-\smallskip
-eps=0.38 was selected because 6 clusters is closest to the 5-identity ground
-truth (the 5 sample-image characters), with one slight over-split for a
-character whose appearance varies significantly between images. eps=0.35 has
-marginally higher silhouette (0.14) but over-splits to 10 clusters. eps=0.40
-collapses two distinct identities. \texttt{min\_samples=1} ensures every face
-joins a cluster (no noise points).
-
-\subsection{Alternatives Considered}
-\begin{itemize}
-  \item k-means: cannot be used --- number of identities is unknown a priori.
-  \item Agglomerative clustering: rejected because DBSCAN is explicitly named
-        in the spec.
-\end{itemize}
-
-% ── 6. Final Results ─────────────────────────────────────────────────────────
-\section{Final Results}
-Measured on the 12 sample images (26 detected faces, all face counts match
-ground truth):
-\begin{itemize}
-  \item Face detection: 12/12 images correct; avg detection $\approx$ 39~ms
-        (MediaPipe path).
-  \item Landmark detection: 100\% both eyes; 100\% RE, 100\% LE, 100\% nose
-        inside the face box.
-  \item Alignment: 100\% success; 0~px residual on every landmark; all outputs
-        exactly 125$\times$125.
-  \item Clustering: 6 DBSCAN clusters from 26 faces (eps=0.38, silhouette
-        = 0.10).
-\end{itemize}
-
-\textbf{Known limitations.}
-(1) MediaPipe model files ($\approx$ 4.9~MB total) must accompany the script
---- the Haar/Hough fallback covers their absence automatically.
-(2) \texttt{face\_recognition} (dlib) must be pip-installed for best clustering
---- the LBP-u2 fallback works without it but with reduced discrimination.
-(3) eps=0.38 over-splits one identity (6 clusters from 5 characters); eps=0.40
-merges two distinct characters, so 6 is the better error.
+% ── Body sections (separate file, counts toward the 3-page limit) ──────────
+\input{report}
 
 % ── References (does not count toward the 3-page limit) ──────────────────────
 \renewcommand{\bibsection}{\section*{References}}
