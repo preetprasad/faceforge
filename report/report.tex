@@ -9,15 +9,20 @@ This report describes the face detection and identity clustering system implemen
 for the CITS4402 project. The system processes 640$\times$480 colour images (1--4 faces),
 detects faces, localises three landmarks (right eye, left eye, nose tip), aligns
 each face to a 125$\times$125 crop, and clusters faces across a folder into unique
-identities. The pipeline uses MediaPipe BlazeFace~\citep{bazarevsky2019blazeface}
+identities. A \textbf{tkinter GUI (Task~1)} with two buttons (\emph{Single Image},
+\emph{Bulk Processing}) wraps the pipeline; it displays the original on the left
+and the annotated output (boxes, landmark dots, corner thumbnails) on the right,
+with a status label reporting processing time, face count, and identity count.
+The detection-and-matching pipeline uses MediaPipe BlazeFace~\citep{bazarevsky2019blazeface}
 and FaceLandmarker~\citep{lugaresi2019mediapipe} when available, with a
 fully self-contained fallback built on OpenCV~\citep{bradski2000opencv} Haar
 cascades~\citep{viola2001rapid} and the Hough circle transform~\citep{yuen1990hough}
 covered in Lab~04. For clustering, 128-D dlib ResNet embeddings~\citep{king2009dlib}
 (via the \texttt{face\_recognition} library) feed DBSCAN~\citep{ester1996density}.
-The table below shows the headline measured outcomes from the naive starting
-point to the final implementation; subsequent sections detail each task's
-development.
+The table below summarises the headline measured outcomes from the naive starting
+point (the first working draft of each task, deliberately spec-incomplete to
+show what each subsequent iteration adds) to the final implementation; the
+sections that follow detail each task's development.
 
 \subsection{Baseline vs Final (measured on the 12 sample images)}
 \noindent
@@ -224,6 +229,14 @@ marginally higher silhouette (0.14) but over-splits to 10 clusters. eps=0.40
 collapses two distinct identities. \texttt{min\_samples=1} ensures every face
 joins a cluster (no noise points).
 
+The end-to-end pipeline reports a smaller identity count than the raw DBSCAN
+sweep above because the v3 singleton-merge post-processing folds the six
+DBSCAN clusters into three identity groups: it joins isolated one-face
+clusters into the nearest large cluster whenever the embedding distance is
+$<$ 0.515 and they do not share a source image. The DBSCAN row in the
+\emph{Baseline vs Final} table reports the raw 6 clusters; the GUI status
+bar after a \emph{Bulk Processing} run reports the post-merge count.
+
 \subsection{Alternatives Considered}
 \begin{itemize}
   \item k-means: cannot be used --- number of identities is unknown a priori.
@@ -248,9 +261,14 @@ ground truth):
 
 \textbf{Known limitations.}
 (1) MediaPipe model files ($\approx$ 4.9~MB total) must accompany the script
---- the Haar/Hough fallback covers their absence automatically.
-(2) \texttt{face\_recognition} (dlib) must be pip-installed for best clustering
---- the LBP-u2 fallback works without it but with reduced discrimination.
-(3) eps=0.38 over-splits one identity (6 clusters from 5 characters); eps=0.40
-merges two distinct characters, so 6 is the better error.
+--- the Haar/Hough fallback covers their absence automatically with no
+measurable loss on the sample set.
+(2) \texttt{face\_recognition} (dlib) must be pip-installed for best clustering.
+The LBP-u2 fallback works without it but degrades the silhouette score from
+0.10 to $\approx 0.07$ at the same eps and over-splits more aggressively.
+Tasks 1--4 are unaffected by the fallback.
+(3) eps=0.38 over-splits one identity (6 raw DBSCAN clusters from 5
+characters); eps=0.40 merges two distinct characters, so 6 is the better
+error. The singleton-merge post-processing then yields the 3 final
+identity groups reported by the GUI.
 
